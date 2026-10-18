@@ -9,7 +9,7 @@ const GEO = '$FormatGEO\r\n' +
   'NG1002    N 36 38 54.00    E 137 11 15.00    24  TOYAMA-AP\r\n' +
   'SL1006    N 36 35 14.14    E 136 53 09.61    55  OYABEGAWALD\r\n';
 
-// 獅子吼の座学で配布されたタスクと同じ形式
+// 獅子吼の座学で配布されたタスクと同じ形式（アプリでは使わない）
 const XCTSK = '{"version":1,"taskType":"CLASSIC","turnpoints":[{"radius":100,"waypoint":{"lon":136.6410138888889,"lat":36.439527777777776,"altSmoothed":170,"name":"A04017","description":"SANROKU EKI"},"type":"SSS"},{"radius":200,"waypoint":{"lon":136.6321638888889,"lat":36.444088888888885,"altSmoothed":140,"name":"A03014","description":"KONCHYU KAN"}},{"radius":100,"waypoint":{"lon":136.6382861111111,"lat":36.44297777777778,"altSmoothed":148,"name":"GL1014","description":"MAIN LD"},"type":"ESS"}],"sss":{"type":"RACE","direction":"EXIT","timeGates":["02:00:00Z"]},"goal":{"type":"CYLINDER","deadline":"05:00:00Z"},"earthModel":"WGS84"}';
 
 const XCFG = JSON.stringify({
@@ -42,49 +42,11 @@ test('FormatGEO waypoints', () => {
   assert.equal(w[1].landing, true);
 });
 
-test('xctsk task', () => {
+test('xctsk task files are recognised but not used', () => {
   const r = C.readAnyFile(XCTSK, 'task.xctsk');
   assert.equal(r.kind, 'task');
-  const t = r.data;
-  assert.equal(t.turnpoints.length, 3);
-  assert.equal(t.turnpoints[0].type, 'SSS');
-  assert.equal(t.turnpoints[1].radius, 200);
-  assert.equal(t.turnpoints[2].name, 'MAIN LD');
-  assert.equal(t.sss.direction, 'EXIT');
-  // 11:30 JST = 02:30Z → ゲートは同じ日の 02:00Z
-  const t0 = Date.UTC(2026, 4, 5, 2, 30);
-  assert.deepEqual(C.startGates(t, t0), [Date.UTC(2026, 4, 5, 2, 0)]);
-});
-
-test('task progress: start exit after gate, turnpoint, goal', () => {
-  const task = C.parseTask(XCTSK);
-  const [sss, tp2, goal] = task.turnpoints;
-  const gate = Date.UTC(2026, 4, 5, 2, 0);
-  let prog = C.newTaskProgress(task);
-  const at = (p, t, dLat = 0) => ({ lat: p.lat + dLat, lon: p.lon, t });
-  const step = (a, b) => (prog = C.taskStep(task, prog, a, b));
-  // ゲート前にシリンダーを出てもスタートにならない
-  step(at(sss, gate - 60000), at(sss, gate - 59000, 0.002));
-  assert.equal(prog.idx, 0);
-  // ゲート後に中から外へ出るとスタート
-  step(at(sss, gate + 1000), at(sss, gate + 2000, 0.002));
-  assert.equal(prog.idx, 1);
-  assert.equal(prog.startT, gate + 2000);
-  // 再スタート
-  step(at(sss, gate + 5000), at(sss, gate + 6000, 0.002));
-  assert.equal(prog.startT, gate + 6000);
-  // TP2 のシリンダーに入る
-  step(at(sss, gate + 7000), at(tp2, gate + 8000, 0.001));
-  assert.equal(prog.idx, 2);
-  const info = C.taskInfo(task, prog, at(tp2, 0), 600, { bestLD: 7.5, trimKmh: 35, margin: 0 }, null);
-  assert.equal(info.tp.name, 'MAIN LD');
-  assert.ok(info.remaining > 400 && info.remaining < 700, info.remaining);
-  // ゴール
-  step(at(tp2, gate + 9000), at(goal, gate + 10000));
-  assert.equal(prog.idx, 3);
-  assert.equal(prog.goalT, gate + 10000);
-  assert.equal(prog.essT, gate + 10000);
-  assert.equal(C.taskInfo(task, prog, at(goal, 0), 600, { bestLD: 7.5, trimKmh: 35 }, null), null);
+  assert.equal(r.data, null);
+  assert.equal(C.readAnyFile('XCTSK:{"taskType":"CLASSIC","version":2}', 'x').kind, 'task');
 });
 
 test('xcfg settings backup', () => {
@@ -102,5 +64,4 @@ test('xcfg settings backup', () => {
 
 test('unknown files give a clear error', () => {
   assert.throws(() => C.readAnyFile('hello', 'x.txt'), /読み込めません/);
-  assert.throws(() => C.readAnyFile('XCTSK:{"taskType":"CLASSIC","version":2}', 'x'), /QR/);
 });

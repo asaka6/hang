@@ -83,19 +83,7 @@
       <button id="wp-add">現在地を登録</button>
       <label class="btn">ファイル読込<input type="file" id="wp-file" multiple hidden></label>
     </div>
-    <p class="hint">読み込めるファイル: ウェイポイント（.wpt FormatGEO / OziExplorer、.cup）、XCTrack のタスク（.xctsk）、XCTrack の設定バックアップ（.xcfg）。複数まとめて選べます。</p>
-    <div id="task-box" hidden>
-      <h2>タスク</h2>
-      <p class="hint" id="task-meta"></p>
-      <ul id="task-list" class="list"></ul>
-      <div class="row">
-        <button id="task-prev" class="small">◀ 前のTP</button>
-        <button id="task-next" class="small">次のTP ▶</button>
-        <button id="task-reset" class="small">最初から</button>
-        <button id="task-clear" class="small danger">タスク解除</button>
-      </div>
-      <h2>ウェイポイント</h2>
-    </div>
+    <p class="hint">読み込めるファイル: ウェイポイント（.wpt FormatGEO / OziExplorer、.cup）、XCTrack の設定バックアップ（.xcfg）。複数まとめて選べます。</p>
     <div class="row">
       <button id="wp-goal-clear">ゴール解除</button>
       <button id="wp-clear" class="danger">全削除</button>
@@ -147,7 +135,7 @@
             <option value="none">なし</option>
           </select>
         </label>
-        <p class="hint">山の上は電波が無いことが多いので、飛ぶ前に Wi-Fi のある所で「地図を保存」してください（現在地、または GPS が無ければタスク／ゴールの周り）。一度見た場所も自動で保存されます。</p>
+        <p class="hint">山の上は電波が無いことが多いので、飛ぶ前に Wi-Fi のある所で「地図を保存」してください（現在地、または GPS が無ければゴール／テイクオフの周り）。一度見た場所も自動で保存されます。</p>
         <div class="row">
           <button type="button" id="map-save2">地図を保存</button>
           <button type="button" id="map-clear" class="danger">保存した地図を削除</button>

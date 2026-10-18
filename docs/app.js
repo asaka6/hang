@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -60,8 +60,8 @@ if (!settings.simpleMap) { settings.mapLayer = 'simple'; settings.simpleMap = tr
 if (settings.mapLayer !== 'none' && !T.LAYERS[settings.mapLayer]) settings.mapLayer = 'simple'; // 無くなった地図の種類
 let waypoints = load('waypoints', []);
 let goal = load('goal', null);
-let task = load('task', null); // XCTrack の .xctsk から読み込んだ大会タスク
-let prog = load('taskProg', null);
+// 以前の版で読み込んだ大会タスクは使わないので消しておく
+try { localStorage.removeItem('hg.task'); localStorage.removeItem('hg.taskProg'); } catch { /* なし */ }
 
 
 const S = {
@@ -112,25 +112,6 @@ function onFix(f) {
   f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
   detectFlight(f);
   detectThermal(f);
-  if (task && prog && prog.startT == null && !S.gateSpoken) {
-    const gates = C.startGates(task, f.t);
-    if (gates.length && f.t >= gates[0] && f.t - gates[0] < 120000) { S.gateSpoken = true; speak('スタートが開きました'); }
-  }
-  if (task && prog) {
-    const np = C.taskStep(task, prog, prev, f);
-    if (np !== prog) {
-      if (np.idx !== prog.idx) {
-        beep(np.idx >= task.turnpoints.length ? 3 : 2);
-        const passed = task.turnpoints[np.idx - 1];
-        const next = task.turnpoints[np.idx];
-        if (np.idx >= task.turnpoints.length) speak('ゴールしました');
-        else if (passed.type === 'SSS') speak(`スタートしました。次は ${next.name}`);
-        else speak(`${passed.type === 'ESS' ? 'イーエスエス' : 'ターンポイント'} 通過。次は ${next.name}`);
-      } else if (np.startT !== prog.startT) { beep(1); speak('スタートを切り直しました'); }
-      prog = np;
-      save('taskProg', prog);
-    }
-  }
   if (S.circling && f.t - S.windT > 5000) {
     const w = C.estimateWind(S.fixes);
     if (w) { S.wind = w; S.windT = f.t; }
@@ -238,7 +219,7 @@ function resetFlight() {
     fixes: [], flightStart: null, flightEnd: null, takeoff: null,
     fastCount: 0, slowSince: null, wind: null, windT: 0,
     circling: false, circleStart: null, thermals: [], lastThermal: null, lastGain: null, thermalEnd: 0,
-    lowWarnT: 0, lowWarned: false, gateSpoken: false, dirty: true,
+    lowWarnT: 0, lowWarned: false, dirty: true,
   });
 }
 
@@ -348,7 +329,7 @@ function render() {
   drawCompassCell();
   setText('v-windtxt', S.wind ? `風 ${settings.windUnit === 'ms' ? S.wind.speed.toFixed(1) + ' m/s' : Math.round(S.wind.speed * 3.6) + ' km/h'}` : '');
 
-  // 目標は自動で選ぶ: タスクの次の TP → 設定したゴール → 一番近い着陸地
+  // 目標は自動で選ぶ: 設定したゴール → 一番近い着陸地
   const tg = currentTarget(f, a);
   if (tg) {
     setText('v-goal-name', tg.label);
@@ -359,9 +340,9 @@ function render() {
     setText('v-goal-sub', tg.sub);
     lowAltitudeWarning(f, tg);
   } else {
-    setText('v-goal-name', task && prog ? 'タスク完了' : '目標なし');
+    setText('v-goal-name', '目標なし');
     for (const id of ['v-goal-dist', 'v-goal-arr', 'v-goal-ld']) setText(id, '--');
-    setText('v-goal-sub', task && prog && prog.goalT ? `ゴール ${clock(prog.goalT)}` : 'WP タブで着陸地を読み込むと自動で案内します');
+    setText('v-goal-sub', 'WP タブで着陸地を読み込むと自動で案内します');
   }
 
   // ステータスバー
@@ -379,19 +360,7 @@ function render() {
 const clock = (t) => { const d = new Date(t); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
-function taskStatus(now, ti) {
-  const gates = C.startGates(task, now);
-  const parts = [`ゴールまで ${(ti.remaining / 1000).toFixed(1)} km`];
-  if (prog.startT == null && gates.length) {
-    const next = gates.find((g) => g > now);
-    parts.unshift(next ? `スタートまで ${mmss(next - now)}` : `スタート開放 ${clock(gates[0])}〜`);
-  } else if (prog.startT != null) {
-    parts.unshift(`スタート ${clock(prog.startT)} 経過 ${mmss(now - prog.startT)}`);
-  }
-  return parts.join(' ・ ');
-}
-
-// ターンポイント通過などの合図音（スタートボタンを押した時に音声を有効化）
+// 合図音（スタートボタンを押した時に音声を有効化）
 let audio = null;
 function beep(n = 1) {
   if (!audio) return;
@@ -405,15 +374,6 @@ function beep(n = 1) {
 }
 
 function currentTarget(f, a) {
-  const ti = task && prog ? C.taskInfo(task, prog, f, a, settings, S.wind) : null;
-  if (ti) {
-    const n = task.turnpoints.length;
-    const kind = ti.tp.type === 'SSS' ? 'スタート' : prog.idx === n - 1 ? 'ゴール' : ti.tp.type === 'ESS' ? 'ESS' : 'TP';
-    return {
-      label: `${kind} ${prog.idx + 1}/${n} ${ti.tp.name}`, p: ti.tp, dist: ti.toEdge, brg: ti.brg,
-      arrival: ti.arrival, reqLD: ti.reqLD, sub: taskStatus(f.t, ti), landing: false,
-    };
-  }
   let wp = goal, label = goal && `ゴール ${goal.name}`;
   if (!wp) {
     // 一番近い着陸地
@@ -534,7 +494,6 @@ function showLandedSummary() {
     ['トラック距離', `${(dist / 1000).toFixed(2)} km`],
     ['離陸からの直線距離', `${(free / 1000).toFixed(2)} km`],
   ];
-  if (task && prog && prog.goalT) rows.push(['タスク', `ゴール ${clock(prog.goalT)}`]);
   $('#landed-list').innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
   $('#landed-igc').hidden = S.demo;
   $('#landed').classList.remove('hidden');
@@ -708,7 +667,7 @@ function drawMap(canvas, widthM, small, view = {}) {
   ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
 
   const me = predicted();
-  // GPS が無い時はゴール・タスク・ウェイポイントの周りを表示（飛ぶ前の確認用）
+  // GPS が無い時はゴール・テイクオフの周りを表示（飛ぶ前の確認用）
   const f = view.center || me || mapCenter();
   if (!f) {
     ctx.fillStyle = fg; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
@@ -791,26 +750,6 @@ function drawMap(canvas, widthM, small, view = {}) {
     }
   }
 
-  // タスク: シリンダーと経路
-  if (task) {
-    const tps = task.turnpoints;
-    ctx.lineWidth = 2; ctx.strokeStyle = '#a000c8';
-    ctx.beginPath();
-    tps.forEach((tp, i) => { const [x, y] = P(tp.lat, tp.lon); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-    tps.forEach((tp, i) => {
-      const [x, y] = P(tp.lat, tp.lon);
-      const next = prog && i === prog.idx;
-      const done = prog && i < prog.idx;
-      ctx.beginPath(); ctx.arc(x, y, Math.max(3, tp.radius * scale), 0, Math.PI * 2);
-      ctx.fillStyle = next ? 'rgba(160,0,200,0.18)' : 'rgba(160,0,200,0.06)';
-      ctx.fill();
-      ctx.lineWidth = next ? 4 : 2; ctx.strokeStyle = done ? '#999999' : '#a000c8';
-      ctx.stroke();
-      ctx.fillStyle = '#a000c8'; ctx.font = 'bold 14px sans-serif';
-      ctx.fillText(`${i + 1}${tp.type === 'SSS' ? ' S' : tp.type === 'ESS' ? ' E' : ''}`, x - 4, y - Math.max(8, tp.radius * scale) - 4);
-    });
-  }
   if (S.takeoff) {
     const [x, y] = P(S.takeoff.lat, S.takeoff.lon);
     ctx.strokeStyle = fg; ctx.lineWidth = 2;
@@ -865,9 +804,9 @@ function drawMap(canvas, widthM, small, view = {}) {
   }
 }
 
-// GPS が無い時の地図の中心: タスクの最初 → ゴール → 最初のウェイポイント
+// GPS が無い時の地図の中心: ゴール → テイクオフ → 最初のウェイポイント
 function mapCenter() {
-  const p = (task && task.turnpoints[0]) || goal || waypoints[0];
+  const p = goal || waypoints.find((w) => w.kind === 'takeoff') || waypoints[0];
   return p ? { lat: p.lat, lon: p.lon } : null;
 }
 
@@ -879,7 +818,7 @@ async function saveMapArea() {
   const c = last() || mapCenter();
   if (!c) return alert('GPS の位置もウェイポイントも無いため、保存する場所が決まりません');
   if (settings.mapLayer === 'none') return alert('背景地図が「なし」になっています');
-  const km = Number(prompt(`${last() ? '現在地' : 'タスク／ゴール'}の周り何 km の地図を保存しますか？`, settings.saveRadiusKm));
+  const km = Number(prompt(`${last() ? '現在地' : 'ゴール／テイクオフ'}の周り何 km の地図を保存しますか？`, settings.saveRadiusKm));
   if (!km || km <= 0) return;
   if (km > 30) return alert('一度に保存できるのは半径 30 km までです');
   settings.saveRadiusKm = km; save('settings', settings);
@@ -1052,45 +991,7 @@ $('#map-follow').addEventListener('click', () => {
 
 const KIND = { turnpoint: '一般', landing: '着陸地', takeoff: 'TO', nogo: '危険' };
 
-function renderTask() {
-  const box = $('#task-box');
-  box.hidden = !task;
-  if (!task) return;
-  const ul = $('#task-list');
-  ul.innerHTML = '';
-  const now = last() ? last().t : Date.now();
-  const gates = C.startGates(task, now);
-  setText('task-meta', `${task.sss ? (task.sss.direction === 'ENTER' ? '入るスタート' : '出るスタート') : 'スタートなし'}` +
-    (gates.length ? ` ・ ゲート ${gates.map(clock).join(', ')}` : '') +
-    (task.goal.deadline ? ` ・ 締切 ${clock(C.utcTimeNear(task.goal.deadline, now))}` : '') +
-    (task.goal.type === 'LINE' ? ' ・ ゴールラインはシリンダーとして扱います' : ''));
-  task.turnpoints.forEach((tp, i) => {
-    const li = document.createElement('li');
-    const state = !prog ? '' : i < prog.idx ? '✓ ' : i === prog.idx ? '▶ ' : '';
-    li.className = i === (prog && prog.idx) ? 'goal' : '';
-    li.innerHTML = '<div class="grow"><div class="name"></div><div class="meta"></div></div>';
-    li.querySelector('.name').textContent = `${state}${i + 1}. ${tp.name}`;
-    li.querySelector('.meta').textContent =
-      `${tp.type === 'SSS' ? 'スタート' : tp.type === 'ESS' ? 'ESS' : tp.type === 'TAKEOFF' ? 'テイクオフ' : i === task.turnpoints.length - 1 ? 'ゴール' : 'TP'}` +
-      ` ・ 半径 ${tp.radius} m` + (tp.code ? ` ・ ${tp.code}` : '');
-    ul.appendChild(li);
-  });
-}
-
-function setTask(t) {
-  task = t;
-  prog = t ? C.newTaskProgress(t) : null;
-  save('task', task); save('taskProg', prog);
-  renderTask(); S.dirty = true; render();
-}
-
-$('#task-prev').addEventListener('click', () => { if (prog && prog.idx > 0) { prog = { ...prog, idx: prog.idx - 1 }; save('taskProg', prog); renderTask(); render(); S.dirty = true; } });
-$('#task-next').addEventListener('click', () => { if (prog && prog.idx < task.turnpoints.length) { prog = { ...prog, idx: prog.idx + 1 }; save('taskProg', prog); renderTask(); render(); S.dirty = true; } });
-$('#task-reset').addEventListener('click', () => { if (confirm('タスクの進行を最初に戻しますか？')) setTask(task); });
-$('#task-clear').addEventListener('click', () => { if (confirm('タスクを解除しますか？')) setTask(null); });
-
 function renderWaypoints() {
-  renderTask();
   const f = last();
   const list = waypoints.map((wp, i) => ({ wp, i, d: f ? C.distance(f.lat, f.lon, wp.lat, wp.lon) : null }));
   if (f) list.sort((a, b) => a.d - b.d);
@@ -1161,8 +1062,7 @@ function importFile({ kind, data }, name, quiet = false) {
     waypoints = (replace ? [] : waypoints).concat(data.filter((w) => !have.has(key(w))));
     save('waypoints', waypoints);
   } else if (kind === 'task') {
-    setTask(data);
-    if (!quiet) alert(`タスクを読み込みました（${data.turnpoints.length} ポイント）。\n計器画面に次のターンポイントが表示されます。`);
+    if (!quiet) alert('大会用のタスク（.xctsk）はこのアプリでは使いません。ウェイポイント（.wpt / .cup）を読み込んでください。');
   } else if (kind === 'settings') {
     const lines = [];
     const s = data.settings;
@@ -1171,11 +1071,9 @@ function importFile({ kind, data }, name, quiet = false) {
     if (s.windUnit) lines.push(`風速の単位: ${s.windUnit === 'ms' ? 'm/s' : 'km/h'}`);
     if (s.theme) lines.push(`テーマ: ${s.theme === 'night' ? '夜（黒背景）' : '昼（白背景）'}`);
     if (data.goal) lines.push(`ゴール: ${data.goal.name}`);
-    if (data.task) lines.push(`タスク: ${data.task.turnpoints.length} ポイント`);
     if (!confirm(`XCTrack の設定から次の項目を取り込みます:\n\n${lines.join('\n')}\n\nよろしいですか？`)) return;
     Object.assign(settings, s);
     if (data.goal) { goal = data.goal; save('goal', goal); }
-    if (data.task) setTask(data.task);
     // 配布された設定ファイルは他の人の名前が入っていることがあるので確認する
     if ((data.pilot || data.glider) && confirm(`パイロット名「${data.pilot || ''}」・機体名「${data.glider || ''}」も設定しますか？\n（他の人の設定ファイルならキャンセル）`)) {
       if (data.pilot) settings.pilot = data.pilot;
@@ -1194,7 +1092,6 @@ const DRIVE_FOLDER = 'https://drive.google.com/drive/folders/1lLYPa8oH_ZAuEPT2EE
 const SCHOOL = [
   { name: '獅子吼 ウェイポイント', file: 'SHISHIKU_20260501.wpt', drive: '1Xvu_-27Ef2Ev0tuZyoJYFDXo3lr-mMbZ' },
   { name: 'つくばね（砺波）ウェイポイント', file: '2025Tonami_waypoint.wpt', drive: '1yYwu-D8g2hvERS7ymrEWgtTigOZ_SdIv' },
-  { name: '獅子吼 タスク 2026-05-05', file: 'task_2026-05-05_1.xctsk', drive: '1S3FqmvZDs3VGoLBid0dOFCTrGR73HhAL' },
 ];
 const driveUrl = (id) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
 
@@ -1239,7 +1136,7 @@ $('#school-update').addEventListener('click', async () => {
   }
   btn.disabled = false; btn.textContent = 'ドライブから最新を取り込む';
   renderWaypoints(); S.dirty = true; render();
-  alert(`${ok} 件取り込みました（ウェイポイントは重複しないよう追加、タスクは最新に置き換え）`);
+  alert(`${ok} 件取り込みました（同じ地点は重複しないよう追加）`);
 });
 $('#school-folder').href = DRIVE_FOLDER;
 
@@ -1390,4 +1287,4 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 
 // テスト用フック
-window.__hang = { S, onFix, settings, start, stop, db, importFile, getTask: () => ({ task, prog }), spoken: [] };
+window.__hang = { S, onFix, settings, start, stop, db, importFile, spoken: [] };
