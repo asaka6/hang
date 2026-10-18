@@ -1,5 +1,5 @@
-// デモ飛行用シミュレーター: 直線滑空とサーマル旋回を風の中で繰り返す
-import { fromXY } from './calc.js';
+// テスト用の模擬飛行: 直線滑空とサーマル旋回を風の中で繰り返す
+import { fromXY } from '../docs/calc.js';
 
 export function createSim({
   lat0 = 36.3, lon0 = 140.15, alt0 = 600, // 離陸地点（初期値は適当な山）

@@ -1,9 +1,8 @@
 import * as C from './calc.js';
-import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.8.0';
+const VERSION = '1.9.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -65,7 +64,7 @@ try { localStorage.removeItem('hg.task'); localStorage.removeItem('hg.taskProg')
 
 
 const S = {
-  running: false, demo: false,
+  running: false,
   fixes: [],
   flightStart: null, flightEnd: null, takeoff: null,
   fastCount: 0, slowSince: null,
@@ -74,7 +73,7 @@ const S = {
   lastThermal: null, lastGain: null, thermalEnd: 0,
   lowWarnT: 0, lowWarned: false, unlockUntil: 0,
   fixAt: 0, prevFixAt: 0, viewUp: 0, magHdg: null, follow: true, panCenter: null, panUp: 0,
-  watchId: null, simTimer: null, wakeLock: null,
+  watchId: null, wakeLock: null,
   lastSaved: 0, dirty: true,
 };
 
@@ -116,7 +115,7 @@ function onFix(f) {
     const w = C.estimateWind(S.fixes);
     if (w) { S.wind = w; S.windT = f.t; }
   }
-  if (!S.demo && f.t - S.lastSaved > 15000) {
+  if (f.t - S.lastSaved > 15000) {
     S.lastSaved = f.t;
     saveCurrent();
   }
@@ -143,7 +142,7 @@ function detectFlight(f) {
     S.slowSince ??= f.t;
     if (f.t - S.slowSince > 60000) {
       S.flightEnd = S.slowSince;
-      if (!S.demo) saveLog();
+      saveLog();
       onLanding();
     }
   } else {
@@ -175,20 +174,10 @@ function detectThermal(f) {
 
 // ---------- 開始・停止 ----------
 
-async function start(demo = false) {
+async function start() {
   $('#start').classList.add('hidden');
-  S.demo = demo;
   S.running = true;
   requestWakeLock();
-  if (demo) {
-    // デモは今いる場所、なければ読み込んだテイクオフ（獅子吼など）から飛ぶ
-    const to = waypoints.find((w) => w.kind === 'takeoff');
-    const pos = last() || (to && { lat: to.lat, lon: to.lon, alt: to.alt });
-    resetFlight();
-    const sim = createSim(pos ? { lat0: pos.lat, lon0: pos.lon, alt0: pos.alt ?? 600 } : {});
-    S.simTimer = setInterval(() => onFix(sim.step(1)), 250); // 4 倍速
-    return;
-  }
   await resumeCurrent();
   if (isFlying()) lockScreen(true); // 途中で再起動した時もそのまま飛行画面に
   if (!('geolocation' in navigator)) { alert('この端末では位置情報が使えません'); return; }
@@ -199,14 +188,13 @@ async function start(demo = false) {
 }
 
 async function stop() {
-  if (S.simTimer) clearInterval(S.simTimer);
   if (S.watchId != null) navigator.geolocation.clearWatch(S.watchId);
-  S.simTimer = null; S.watchId = null;
-  if (!S.demo && S.flightStart != null && S.flightEnd == null) {
+  S.watchId = null;
+  if (S.flightStart != null && S.flightEnd == null) {
     S.flightEnd = last().t;
     await saveLog();
   }
-  if (!S.demo) await db.del('kv', 'current').catch(() => {});
+  await db.del('kv', 'current').catch(() => {});
   S.running = false;
   lockScreen(false);
   releaseWakeLock();
@@ -347,8 +335,7 @@ function render() {
 
   // ステータスバー
   const rec = $('#rec');
-  if (S.demo) { rec.textContent = 'デモ'; rec.className = 'badge warn'; }
-  else if (S.flightStart != null && S.flightEnd == null) { rec.textContent = '● 飛行中'; rec.className = 'badge rec'; }
+  if (S.flightStart != null && S.flightEnd == null) { rec.textContent = '● 飛行中'; rec.className = 'badge rec'; }
   else if (S.flightEnd != null) { rec.textContent = '着陸'; rec.className = 'badge ok'; }
   else { rec.textContent = '離陸待ち'; rec.className = 'badge'; }
   if (S.flightStart != null) {
@@ -436,13 +423,13 @@ function speak(text) {
 // ---------- 離陸・着陸の自動動作 ----------
 
 function onTakeoff() {
-  speak(S.demo ? 'デモ飛行。テイクオフしました' : 'テイクオフ。記録を開始しました');
+  speak('テイクオフ。記録を開始しました');
   showPage('main');
   lockScreen(true);
 }
 
 function onLanding() {
-  speak(S.demo ? '着陸しました' : '着陸しました。記録を保存しました');
+  speak('着陸しました。記録を保存しました');
   lockScreen(false);
   showLandedSummary();
 }
@@ -495,7 +482,6 @@ function showLandedSummary() {
     ['離陸からの直線距離', `${(free / 1000).toFixed(2)} km`],
   ];
   $('#landed-list').innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
-  $('#landed-igc').hidden = S.demo;
   $('#landed').classList.remove('hidden');
 }
 $('#landed-close').addEventListener('click', () => $('#landed').classList.add('hidden'));
@@ -527,7 +513,7 @@ function predicted() {
   if (!f) return null;
   const gt = C.groundTrack(S.fixes);
   if (!gt || gt.spd < 1 || gt.hdg == null) return { lat: f.lat, lon: f.lon, hdg: gt && gt.hdg };
-  // デモは 4 倍速なので、GPS の時刻と実際の時間の比で進める
+  // GPS の時刻の進み方と受信間隔の比で進める（普通は 1 倍）
   const prev = S.fixes[S.fixes.length - 2];
   const rate = prev && S.fixAt > S.prevFixAt ? Math.max(0.5, Math.min(8, (f.t - prev.t) / (S.fixAt - S.prevFixAt))) : 1;
   const dt = Math.min(2, (rate * (performance.now() - S.fixAt)) / 1000);
@@ -1216,7 +1202,6 @@ $('#alt-set').addEventListener('click', () => {
   save('settings', settings); renderSettings(); render();
 });
 $('#alt-reset').addEventListener('click', () => { settings.altOffset = 0; save('settings', settings); renderSettings(); render(); });
-$('#demo').addEventListener('click', async () => { await stop(); start(true); showPage('main'); });
 $('#stop').addEventListener('click', () => { if (confirm('計器を停止しますか？（飛行中のログは保存されます）')) stop(); });
 
 // ---------- ページ切替・マップ操作 ----------
@@ -1267,8 +1252,7 @@ function unlockAudio() {
     try { const u = new SpeechSynthesisUtterance('計器をスタートします'); u.lang = 'ja-JP'; speechSynthesis.speak(u); } catch { /* なし */ }
   }
 }
-$('#start-btn').addEventListener('click', () => { unlockAudio(); start(false); });
-$('#start-demo').addEventListener('click', () => { unlockAudio(); start(true); });
+$('#start-btn').addEventListener('click', () => { unlockAudio(); start(); });
 
 // ---------- 起動 ----------
 

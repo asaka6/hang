@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as C from '../docs/calc.js';
-import { createSim } from '../docs/sim.js';
+import { createSim } from './sim.js';
 
 function fly(seconds, opts) {
   const sim = createSim({ start: Date.UTC(2026, 9, 18, 2, 0, 0), ...opts });

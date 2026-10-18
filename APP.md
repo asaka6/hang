@@ -55,7 +55,6 @@ Safari で開いて「ホーム画面に追加」すれば普通のアプリの�
 | ウェイポイント | 現在地を登録、またはファイル読込（XCTrack で使う FormatGEO の `.wpt`、OziExplorer `.wpt`、SeeYou `.cup`）。コードから着陸地（GL/SL）・テイクオフ（TO）・危険地点（NG）を自動で分類 |
 | XCTrack 設定の取り込み | XCTrack の設定バックアップ `.xcfg` からゴール滑空比・トリム速度・風速の単位・テーマ・ゴールを取り込み（大会用のタスクは使いません） |
 | フライトログ | 離陸を自動検出して記録、着陸 60 秒後に自動保存。**IGC 書き出し**（XContest 等へアップロード可） |
-| デモ飛行 | 地上で画面の見え方や操作を練習できる |
 | 昼 / 夜テーマ | 日差しの下では白背景（昼）が見やすい |
 
 ## iPhone に入れる方法
@@ -157,7 +156,7 @@ Safari で開いて「ホーム画面に追加」すれば普通のアプリの�
 
 ## 開発者向け
 
-- 本体: `docs/index.html`, `docs/app.js`（画面）, `docs/calc.js`（計算）, `docs/sim.js`（デモ飛行）, `docs/sw.js`（オフライン）
+- 本体: `docs/index.html`, `docs/app.js`（画面）, `docs/calc.js`（計算）, `docs/tiles.js`・`docs/mvt.js`（地図）, `docs/terrain.js`（対地高度）, `docs/sw.js`（オフライン）
 - 計算のテスト: `npm test`（Node.js 18 以上）
-- ローカルで確認: `npx http-server docs` → ブラウザで開き「デモ飛行」
+- ローカルで確認: `npx http-server docs` → ブラウザで開く（`tests/sim.js` は計算テスト用の模擬飛行）
 - 更新したら `docs/sw.js` の `CACHE` のバージョンを上げると、iPhone 側に新しい版が確実に届きます
