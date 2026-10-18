@@ -524,3 +524,70 @@ export function turnBackNeeded(reserve, brgToLanding, hdg, warnAt = 60) {
   const away = Math.abs(norm180(brgToLanding - hdg)) > 100;
   return away && reserve < warnAt;
 }
+
+// ---- ログの分析（フライト後に詳しく見る用） ----
+
+// fixes: [{ t, lat, lon, alt }] → 各点の上昇率・速度、旋回してサーマルにいた区間、まとめ
+export function analyzeFlight(fixes) {
+  const n = fixes.length;
+  const v = new Array(n).fill(0), spd = new Array(n).fill(0), hdg = new Array(n).fill(null);
+  for (let i = 1; i < n; i++) {
+    const a = fixes[i - 1], b = fixes[i];
+    const dt = (b.t - a.t) / 1000;
+    if (dt <= 0) continue;
+    const d = distance(a.lat, a.lon, b.lat, b.lon);
+    spd[i] = d / dt;
+    if (spd[i] > 2) hdg[i] = bearing(a.lat, a.lon, b.lat, b.lon);
+    // 上昇率: 直近 3 秒の傾き
+    let j = i;
+    while (j > 0 && b.t - fixes[j - 1].t <= 3000) j--;
+    const w = fixes.slice(j, i + 1);
+    v[i] = w.length >= 2 ? verticalSpeed(w, 3) ?? 0 : 0;
+  }
+  // 旋回: 直近 8 秒で向きが変わった量
+  const circling = new Array(n).fill(false);
+  let turned = 0, lo = 1;
+  const dh = (i) => (hdg[i] != null && hdg[i - 1] != null ? norm180(hdg[i] - hdg[i - 1]) : 0);
+  for (let i = 1; i < n; i++) {
+    turned += dh(i);
+    while (lo < i && fixes[i].t - fixes[lo].t > 8000) { turned -= dh(lo); lo++; }
+    const dt = (fixes[i].t - fixes[lo].t) / 1000;
+    circling[i] = dt > 3 && Math.abs(turned / dt) > 8;
+  }
+  // 旋回が 20 秒以上続いて上がった区間 = サーマル
+  const thermals = [];
+  for (let i = 0; i < n;) {
+    if (!circling[i]) { i++; continue; }
+    let j = i;
+    while (j + 1 < n && (circling[j + 1] || (j + 4 < n && circling[j + 4]))) j++;
+    const dt = (fixes[j].t - fixes[i].t) / 1000;
+    const gain = fixes[j].alt - fixes[i].alt;
+    if (dt >= 20 && gain / dt > 0.2) {
+      let best = i;
+      for (let k = i; k <= j; k++) if (v[k] > v[best]) best = k;
+      thermals.push({ start: i, end: j, lat: fixes[best].lat, lon: fixes[best].lon, climb: gain / dt, gain, sec: dt });
+    }
+    i = j + 1;
+  }
+  let track = 0, maxAlt = -Infinity, minAlt = Infinity, maxClimb = 0, maxSink = 0, free = 0, maxSpd = 0;
+  for (let i = 0; i < n; i++) {
+    const f = fixes[i];
+    if (i) track += distance(fixes[i - 1].lat, fixes[i - 1].lon, f.lat, f.lon);
+    if (f.alt != null) { maxAlt = Math.max(maxAlt, f.alt); minAlt = Math.min(minAlt, f.alt); }
+    if (Math.abs(v[i]) < 15) { maxClimb = Math.max(maxClimb, v[i]); maxSink = Math.min(maxSink, v[i]); } // GPS の飛びは除く
+    if (spd[i] < 60) maxSpd = Math.max(maxSpd, spd[i]);
+    free = Math.max(free, distance(fixes[0].lat, fixes[0].lon, f.lat, f.lon));
+  }
+  const bestThermal = thermals.reduce((a, b) => (!a || b.climb > a.climb ? b : a), null);
+  return {
+    v, spd, circling, thermals,
+    stats: {
+      sec: n > 1 ? (fixes[n - 1].t - fixes[0].t) / 1000 : 0,
+      maxAlt, minAlt, maxClimb, maxSink, track, free, maxSpd,
+      thermalCount: thermals.length,
+      totalGain: thermals.reduce((s, t) => s + t.gain, 0),
+      circlingSec: thermals.reduce((s, t) => s + t.sec, 0),
+      bestThermal,
+    },
+  };
+}

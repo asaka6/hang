@@ -95,7 +95,7 @@
   <!-- ログ -->
   <section id="page-log" class="page scroll">
     <h2>フライトログ</h2>
-    <p class="hint">IGC ファイルを書き出して XContest などにアップロードできます。</p>
+    <p class="hint">フライトを押すと、地図・高度グラフ・サーマルなどを詳しく見られます。「IGC」で書き出して XContest にアップロードもできます。</p>
     <ul id="log-list" class="list"></ul>
   </section>
 
@@ -185,11 +185,32 @@
   <button data-page="set">設定</button>
 </nav>
 
+<div id="log-view" class="viewer hidden">
+  <div class="lv-head">
+    <button id="lv-close" class="small">◀ 戻る</button>
+    <b id="lv-title"></b>
+    <button id="lv-igc" class="small">IGC 書き出し</button>
+  </div>
+  <div class="lv-body">
+    <canvas id="lv-map"></canvas>
+    <div class="lv-readout" id="lv-readout">グラフを指でなぞると、その時の様子が出ます</div>
+    <canvas id="lv-graph"></canvas>
+    <div class="row">
+      <button id="lv-play">▶ 再生（20倍速）</button>
+      <button id="lv-fit">全体を表示</button>
+    </div>
+    <ul class="summary" id="lv-stats"></ul>
+    <h3 class="lv-h">サーマル</h3>
+    <ul class="list" id="lv-thermals"></ul>
+  </div>
+</div>
+
 <div id="landed" class="overlay hidden">
   <div class="card">
     <h1>おつかれさまでした</h1>
     <ul class="summary" id="landed-list"></ul>
-    <button id="landed-igc" class="primary">IGC を書き出す（XContest へ）</button>
+    <button id="landed-view" class="primary">詳しく見る</button>
+    <button id="landed-igc">IGC を書き出す（XContest へ）</button>
     <button id="landed-close">閉じる</button>
   </div>
 </div>

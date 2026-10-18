@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -249,7 +249,7 @@ async function saveLog() {
   }
   const slim = fixes.map(({ t, lat, lon, alt: a }) => ({ t, lat, lon, alt: a }));
   await db.put('logs', {
-    id: S.flightStart, start: S.flightStart, end: S.flightEnd, dist, maxAlt,
+    id: S.flightStart, start: S.flightStart, end: S.flightEnd, dist, maxAlt, altOffset: settings.altOffset,
     pilot: settings.pilot, glider: settings.glider, fixes: slim,
   });
   renderLogs();
@@ -565,6 +565,11 @@ function showLandedSummary() {
   $('#landed').classList.remove('hidden');
 }
 $('#landed-close').addEventListener('click', () => $('#landed').classList.add('hidden'));
+$('#landed-view').addEventListener('click', async () => {
+  const logs = (await db.all('logs').catch(() => [])).sort((a, b) => b.start - a.start);
+  $('#landed').classList.add('hidden');
+  if (logs[0]) openLog(logs[0]);
+});
 $('#landed-igc').addEventListener('click', async () => {
   const logs = (await db.all('logs').catch(() => [])).sort((a, b) => b.start - a.start);
   if (logs[0]) exportIGC(logs[0]);
@@ -885,7 +890,6 @@ function mapCenter() {
   return p ? { lat: p.lat, lon: p.lon } : null;
 }
 
-T.setOnTileLoad(() => { S.dirty = true; });
 
 // ---------- 地図の保存（オフライン用） ----------
 
@@ -1243,11 +1247,286 @@ async function renderLogs() {
     li.addEventListener('click', async (e) => {
       const act = e.target.dataset.act;
       if (act === 'igc') exportIGC(lg);
-      if (act === 'del' && confirm('このログを削除しますか？')) { await db.del('logs', lg.id); renderLogs(); }
+      else if (act === 'del') { if (confirm('このログを削除しますか？')) { await db.del('logs', lg.id); renderLogs(); } }
+      else openLog(lg);
     });
     ul.appendChild(li);
   }
 }
+
+// ---------- ログを詳しく見る ----------
+
+const LV = { lg: null, a: null, cur: 0, center: null, width: 3000, play: null, ground: null };
+
+function openLog(lg) {
+  if (!lg.fixes || lg.fixes.length < 2) return alert('このログには点が足りません');
+  const off = lg.altOffset ?? settings.altOffset;
+  const fixes = lg.fixes.map((f) => ({ ...f, alt: f.alt != null ? f.alt + off : null }));
+  LV.lg = { ...lg, fixes };
+  LV.a = C.analyzeFlight(fixes);
+  LV.cur = 0;
+  LV.ground = null;
+  fitLog();
+  const d = new Date(lg.start);
+  setText('lv-title', `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`);
+  renderLogStats();
+  $('#log-view').classList.remove('hidden');
+  stopPlay();
+  requestAnimationFrame(() => { drawLogMap(); drawLogGraph(); showReadout(); });
+}
+
+function fitLog() {
+  const fx = LV.lg.fixes;
+  let n = -90, s = 90, e = -180, w = 180;
+  for (const f of fx) { n = Math.max(n, f.lat); s = Math.min(s, f.lat); e = Math.max(e, f.lon); w = Math.min(w, f.lon); }
+  LV.center = { lat: (n + s) / 2, lon: (e + w) / 2 };
+  const c = $('#lv-map');
+  const wM = C.distance(LV.center.lat, w, LV.center.lat, e), hM = C.distance(s, LV.center.lon, n, LV.center.lon);
+  const aspect = (c.clientWidth || 390) / (c.clientHeight || 380);
+  LV.width = Math.max(600, Math.max(wM, hM * aspect) * 1.25);
+}
+
+const hms = (sec) => `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+function renderLogStats() {
+  const st = LV.a.stats, lg = LV.lg;
+  const rows = [
+    ['滞空時間', hms(st.sec)],
+    ['最高高度', `${Math.round(st.maxAlt)} m`],
+    ['最大上昇', `+${st.maxClimb.toFixed(1)} m/s`],
+    ['最大シンク', `${st.maxSink.toFixed(1)} m/s`],
+    ['最高速度', `${Math.round(st.maxSpd * 3.6)} km/h`],
+    ['トラック距離', `${(st.track / 1000).toFixed(2)} km`],
+    ['離陸地点から一番遠く', `${(st.free / 1000).toFixed(2)} km`],
+    ['サーマル', `${st.thermalCount} 回 ・ 合計 +${Math.round(st.totalGain)} m ・ 旋回 ${hms(st.circlingSec)}`],
+  ];
+  if (st.bestThermal) rows.push(['一番良かったサーマル', `+${st.bestThermal.climb.toFixed(1)} m/s（+${Math.round(st.bestThermal.gain)} m）`]);
+  if (lg.glider) rows.push(['機体', lg.glider]);
+  $('#lv-stats').innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b></b></li>`).join('');
+  [...$('#lv-stats').children].forEach((li, i) => { li.querySelector('b').textContent = rows[i][1]; });
+  const ul = $('#lv-thermals');
+  ul.innerHTML = LV.a.thermals.length ? '' : '<li class="hint">旋回して上がった場所はありませんでした</li>';
+  LV.a.thermals.forEach((th, i) => {
+    const li = document.createElement('li');
+    const t0 = (LV.lg.fixes[th.start].t - LV.lg.fixes[0].t) / 1000;
+    li.innerHTML = '<div class="grow"><div class="name"></div><div class="meta"></div></div><button class="small">見る</button>';
+    li.querySelector('.name').textContent = `${i + 1}. 平均 +${th.climb.toFixed(1)} m/s ・ +${Math.round(th.gain)} m`;
+    li.querySelector('.meta').textContent = `離陸から ${hms(t0)} ・ ${Math.round(th.sec)} 秒 旋回`;
+    li.addEventListener('click', () => {
+      stopPlay();
+      LV.cur = th.start;
+      LV.center = { lat: th.lat, lon: th.lon }; LV.width = 800;
+      drawLogMap(); drawLogGraph(); showReadout();
+      $('#lv-map').scrollIntoView({ behavior: 'smooth' });
+    });
+    ul.appendChild(li);
+  });
+}
+
+function fitCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h, dpr };
+}
+
+function drawLogMap() {
+  if (!LV.lg) return;
+  const c = $('#lv-map');
+  const { ctx, w, h, dpr } = fitCanvas(c);
+  const css = getComputedStyle(document.body);
+  const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  const ctr = LV.center, scale = w / LV.width;
+  const P = (lat, lon) => { const p = C.toXY(ctr.lat, ctr.lon, lat, lon); return [w / 2 + p.x * scale, h / 2 - p.y * scale]; };
+  if (settings.mapLayer !== 'none') T.drawTiles(ctx, settings.mapLayer, P, ctr, scale, Math.hypot(w, h) / 2, dpr, settings.theme === 'night');
+  const fx = LV.lg.fixes, v = LV.a.v;
+  // 軌跡（昇降で色分け）
+  ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let i = 1; i < fx.length; i++) {
+    const [x0, y0] = P(fx[i - 1].lat, fx[i - 1].lon), [x1, y1] = P(fx[i].lat, fx[i].lon);
+    ctx.strokeStyle = varioColor(v[i]);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  }
+  // 着陸地
+  ctx.font = 'bold 13px sans-serif';
+  for (const wp of waypoints) {
+    if (!wp.landing && wp.kind !== 'takeoff') continue;
+    const [x, y] = P(wp.lat, wp.lon);
+    if (x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fillStyle = wp.landing ? '#00a040' : '#e0a000'; ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 9, y + 4); ctx.fillStyle = fg; ctx.fillText(wp.name, x + 9, y + 4);
+  }
+  // サーマル（番号と上昇率）
+  LV.a.thermals.forEach((th, i) => {
+    const [x, y] = P(th.lat, th.lon);
+    ctx.beginPath(); ctx.arc(x, y, 9 + Math.min(10, th.climb * 3), 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(230,0,0,0.2)'; ctx.fill(); ctx.strokeStyle = '#e00000'; ctx.lineWidth = 2; ctx.stroke();
+    const t = `${i + 1}: +${th.climb.toFixed(1)}`;
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(t, x + 12, y - 10); ctx.fillStyle = '#c00000'; ctx.fillText(t, x + 12, y - 10);
+  });
+  // 離陸・着陸
+  const mark = (f, color, label) => {
+    const [x, y] = P(f.lat, f.lon);
+    ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = fg; ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(label, x + 9, y + 16); ctx.fillText(label, x + 9, y + 16);
+  };
+  mark(fx[0], '#00a040', '離陸');
+  mark(fx[fx.length - 1], '#333333', '着陸');
+  // 今見ている時点
+  const f = fx[LV.cur];
+  const [x, y] = P(f.lat, f.lon);
+  const nx = fx[Math.min(fx.length - 1, LV.cur + 1)];
+  drawMe(ctx, x, y, LV.cur + 1 < fx.length && LV.a.spd[LV.cur + 1] > 2 ? C.bearing(f.lat, f.lon, nx.lat, nx.lon) : null);
+  // 縮尺・出典
+  const bar = niceScale(LV.width / 4);
+  ctx.strokeStyle = fg; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(10, h - 12); ctx.lineTo(10 + bar * scale, h - 12); ctx.stroke();
+  ctx.fillStyle = fg; ctx.font = '13px sans-serif'; ctx.fillText(bar >= 1000 ? `${bar / 1000} km` : `${bar} m`, 10, h - 18);
+  if (settings.mapLayer !== 'none') { ctx.font = '10px sans-serif'; ctx.textAlign = 'right'; ctx.fillText(T.LAYERS[settings.mapLayer].attr, w - 4, h - 4); ctx.textAlign = 'left'; }
+}
+
+function drawLogGraph() {
+  if (!LV.lg) return;
+  const c = $('#lv-graph');
+  const { ctx, w, h } = fitCanvas(c);
+  const css = getComputedStyle(document.body);
+  ctx.fillStyle = css.getPropertyValue('--bg'); ctx.fillRect(0, 0, w, h);
+  const fx = LV.lg.fixes, t0 = fx[0].t, t1 = fx[fx.length - 1].t;
+  // 地面の高さ（標高データ）。読めたら描き直す
+  if (!LV.ground) {
+    const N = 200;
+    LV.ground = Array.from({ length: N }, (_, k) => fx[Math.round((k / (N - 1)) * (fx.length - 1))]);
+  }
+  const ground = LV.ground.map((f) => G.elevation(f.lat, f.lon, () => drawLogGraph()));
+  const alts = fx.map((f) => f.alt).filter((a) => a != null).concat(ground.filter((g) => g != null));
+  const lo = Math.floor((Math.min(...alts) - 20) / 50) * 50, hi = Math.ceil((Math.max(...alts) + 20) / 50) * 50;
+  const X = (t) => 36 + ((t - t0) / Math.max(1, t1 - t0)) * (w - 44);
+  const Y = (a) => h - 16 - ((a - lo) / (hi - lo)) * (h - 26);
+  // 目盛り
+  ctx.strokeStyle = css.getPropertyValue('--muted'); ctx.lineWidth = 0.5; ctx.fillStyle = css.getPropertyValue('--muted'); ctx.font = '11px sans-serif';
+  const stepA = (hi - lo) > 600 ? 200 : 100;
+  for (let a = Math.ceil(lo / stepA) * stepA; a <= hi; a += stepA) {
+    ctx.beginPath(); ctx.moveTo(36, Y(a)); ctx.lineTo(w - 8, Y(a)); ctx.stroke(); ctx.fillText(`${a}`, 2, Y(a) + 4);
+  }
+  const stepT = (t1 - t0) > 3600000 ? 1800000 : (t1 - t0) > 1200000 ? 600000 : 300000;
+  for (let t = t0 + stepT; t < t1; t += stepT) {
+    ctx.beginPath(); ctx.moveTo(X(t), 6); ctx.lineTo(X(t), h - 16); ctx.stroke();
+    ctx.fillText(`${Math.round((t - t0) / 60000)}分`, X(t) - 10, h - 3);
+  }
+  // 地面（灰色）
+  if (ground.some((g) => g != null)) {
+    ctx.beginPath(); ctx.moveTo(X(LV.ground[0].t), h - 16);
+    LV.ground.forEach((f, k) => { if (ground[k] != null) ctx.lineTo(X(f.t), Y(ground[k])); });
+    ctx.lineTo(X(LV.ground[LV.ground.length - 1].t), h - 16); ctx.closePath();
+    ctx.fillStyle = 'rgba(120,120,120,0.45)'; ctx.fill();
+  }
+  // 高度（昇降で色分け）
+  ctx.lineWidth = 2;
+  for (let i = 1; i < fx.length; i++) {
+    if (fx[i].alt == null || fx[i - 1].alt == null) continue;
+    ctx.strokeStyle = varioColor(LV.a.v[i]);
+    ctx.beginPath(); ctx.moveTo(X(fx[i - 1].t), Y(fx[i - 1].alt)); ctx.lineTo(X(fx[i].t), Y(fx[i].alt)); ctx.stroke();
+  }
+  // 今見ている時点
+  const f = fx[LV.cur];
+  ctx.strokeStyle = '#4285f4'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(X(f.t), 4); ctx.lineTo(X(f.t), h - 16); ctx.stroke();
+  if (f.alt != null) { ctx.beginPath(); ctx.arc(X(f.t), Y(f.alt), 5, 0, Math.PI * 2); ctx.fillStyle = '#4285f4'; ctx.fill(); }
+}
+
+function showReadout() {
+  const fx = LV.lg.fixes, i = LV.cur, f = fx[i];
+  const g = G.elevation(f.lat, f.lon);
+  const parts = [
+    hms((f.t - fx[0].t) / 1000),
+    `高度 ${f.alt != null ? Math.round(f.alt) : '--'} m`,
+    g != null && f.alt != null ? `対地 ${Math.round(f.alt - g)} m` : null,
+    `上昇 ${LV.a.v[i] > 0 ? '+' : ''}${LV.a.v[i].toFixed(1)}`,
+    `${Math.round(LV.a.spd[i] * 3.6)} km/h`,
+  ].filter(Boolean);
+  setText('lv-readout', parts.join(' ・ '));
+}
+
+function setCursorByX(clientX) {
+  const c = $('#lv-graph'), r = c.getBoundingClientRect();
+  const fx = LV.lg.fixes, t0 = fx[0].t, t1 = fx[fx.length - 1].t;
+  const t = t0 + ((clientX - r.left - 36) / Math.max(1, r.width - 44)) * (t1 - t0);
+  let lo = 0, hi = fx.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (fx[m].t < t) lo = m + 1; else hi = m; }
+  LV.cur = Math.max(0, Math.min(fx.length - 1, lo));
+  keepCursorInView();
+  drawLogMap(); drawLogGraph(); showReadout();
+}
+
+// 今の点が地図の外に出たら、地図をそこへ動かす
+function keepCursorInView() {
+  const f = LV.lg.fixes[LV.cur], c = $('#lv-map');
+  const p = C.toXY(LV.center.lat, LV.center.lon, f.lat, f.lon);
+  const half = LV.width / 2, halfH = (LV.width * (c.clientHeight / Math.max(1, c.clientWidth))) / 2;
+  if (Math.abs(p.x) > half * 0.85 || Math.abs(p.y) > halfH * 0.85) LV.center = { lat: f.lat, lon: f.lon };
+}
+
+{
+  const g = $('#lv-graph');
+  let down = false;
+  g.addEventListener('pointerdown', (e) => { down = true; stopPlay(); try { g.setPointerCapture(e.pointerId); } catch { /* なし */ } setCursorByX(e.clientX); });
+  g.addEventListener('pointermove', (e) => { if (down) setCursorByX(e.clientX); });
+  for (const ev of ['pointerup', 'pointercancel']) g.addEventListener(ev, () => { down = false; });
+
+  // 地図: 1 本指で移動、2 本指で拡大縮小
+  const m = $('#lv-map');
+  const ptrs = new Map();
+  let st = null;
+  const snap = () => {
+    const [a, b] = [...ptrs.values()];
+    return { center: LV.center, width: LV.width, mid: b ? [(a.x + b.x) / 2, (a.y + b.y) / 2] : [a.x, a.y], dist: b ? Math.hypot(a.x - b.x, a.y - b.y) : 0 };
+  };
+  m.addEventListener('pointerdown', (e) => { try { m.setPointerCapture(e.pointerId); } catch { /* なし */ } ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); st = snap(); });
+  m.addEventListener('pointermove', (e) => {
+    if (!ptrs.has(e.pointerId) || !st) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const now = snap();
+    if (st.dist && now.dist) LV.width = Math.max(200, Math.min(80000, (st.width * st.dist) / now.dist));
+    const pxPerM = m.clientWidth / LV.width;
+    const c = C.fromXY(st.center.lat, st.center.lon, -(now.mid[0] - st.mid[0]) / pxPerM, (now.mid[1] - st.mid[1]) / pxPerM);
+    LV.center = { lat: c.lat, lon: c.lon };
+    drawLogMap();
+  });
+  const end = (e) => { ptrs.delete(e.pointerId); st = ptrs.size ? snap() : null; };
+  m.addEventListener('pointerup', end); m.addEventListener('pointercancel', end);
+  m.addEventListener('wheel', (e) => { e.preventDefault(); LV.width = Math.max(200, Math.min(80000, LV.width * (e.deltaY > 0 ? 1.15 : 1 / 1.15))); drawLogMap(); }, { passive: false });
+}
+
+function stopPlay() {
+  if (LV.play) clearInterval(LV.play);
+  LV.play = null;
+  setText('lv-play', '▶ 再生（20倍速）');
+}
+$('#lv-play').addEventListener('click', () => {
+  if (LV.play) return stopPlay();
+  const fx = LV.lg.fixes;
+  if (LV.cur >= fx.length - 1) LV.cur = 0;
+  setText('lv-play', '❚❚ 止める');
+  LV.play = setInterval(() => {
+    // 0.05 秒ごとに 1 秒進める = 20 倍速
+    const target = fx[LV.cur].t + 1000;
+    while (LV.cur < fx.length - 1 && fx[LV.cur].t < target) LV.cur++;
+    keepCursorInView();
+    drawLogMap(); drawLogGraph(); showReadout();
+    if (LV.cur >= fx.length - 1) stopPlay();
+  }, 50);
+});
+$('#lv-fit').addEventListener('click', () => { fitLog(); drawLogMap(); });
+$('#lv-close').addEventListener('click', () => { stopPlay(); $('#log-view').classList.add('hidden'); LV.lg = null; });
+$('#lv-igc').addEventListener('click', async () => {
+  const lg = (await db.all('logs').catch(() => [])).find((x) => x.id === LV.lg.id);
+  if (lg) exportIGC(lg);
+});
+T.setOnTileLoad(() => { S.dirty = true; if (LV.lg && !LV.play) drawLogMap(); });
 
 async function exportIGC(lg) {
   const igc = C.toIGC(lg.fixes, { pilot: lg.pilot, glider: lg.glider });
