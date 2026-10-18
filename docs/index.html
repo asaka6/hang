@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HG計器">
+<meta name="theme-color" content="#000000">
+<title>HG Instrument</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="day">
+
+<header id="status">
+  <span id="gps" class="badge bad">GPS --</span>
+  <span id="rec" class="badge">待機</span>
+  <span id="ftime">0:00</span>
+  <span id="clock">--:--</span>
+</header>
+
+<main>
+  <!-- 計器 -->
+  <section id="page-main" class="page active">
+    <div class="grid">
+      <div class="tile span2 big">
+        <div class="label">高度 <small>m</small></div>
+        <div class="value" id="v-alt">----</div>
+        <div class="sub">離陸比 <b id="v-agl">--</b> m</div>
+      </div>
+      <div class="tile">
+        <div class="label">対地速度 <small>km/h</small></div>
+        <div class="value" id="v-spd">--</div>
+      </div>
+      <div class="tile">
+        <div class="label">GPSバリオ <small>m/s</small></div>
+        <div class="value" id="v-vario">--</div>
+      </div>
+      <div class="tile">
+        <div class="label">風 <small>km/h</small></div>
+        <div class="value wind"><span class="arrow" id="v-wind-arrow">↑</span><span id="v-wind">--</span></div>
+        <div class="sub" id="v-wind-sub">旋回すると推定</div>
+      </div>
+      <div class="tile">
+        <div class="label">L/D</div>
+        <div class="value" id="v-ld">--</div>
+        <div class="sub">サーマル <b id="v-thermal">--</b> m/s</div>
+      </div>
+      <div class="tile span2" id="goal-tile">
+        <div class="label">ゴール <span id="v-goal-name">未設定</span></div>
+        <div class="goalrow">
+          <span class="arrow big-arrow" id="v-goal-arrow">↑</span>
+          <div><div class="value" id="v-goal-dist">--</div><div class="sub">km</div></div>
+          <div><div class="value" id="v-goal-arr">--</div><div class="sub">到着高度 m</div></div>
+          <div><div class="value small" id="v-goal-ld">--</div><div class="sub">必要L/D</div></div>
+        </div>
+      </div>
+    </div>
+    <canvas id="mini-map"></canvas>
+  </section>
+
+  <!-- マップ -->
+  <section id="page-map" class="page">
+    <canvas id="map"></canvas>
+    <div class="map-ctl">
+      <button data-zoom="-1">−</button>
+      <button data-zoom="1">＋</button>
+      <button id="map-up">進行方向↑</button>
+    </div>
+  </section>
+
+  <!-- ウェイポイント -->
+  <section id="page-wp" class="page scroll">
+    <h2>ウェイポイント</h2>
+    <div class="row">
+      <button id="wp-add">現在地を登録</button>
+      <label class="btn">ファイル読込 (.cup/.wpt)<input type="file" id="wp-file" accept=".cup,.wpt,.txt,text/plain" hidden></label>
+    </div>
+    <div class="row">
+      <button id="wp-goal-clear">ゴール解除</button>
+      <button id="wp-clear" class="danger">全削除</button>
+    </div>
+    <p class="hint">緑 = 着陸可能地点。「ゴール」にした地点までの距離・到着高度が計器画面に出ます。</p>
+    <ul id="wp-list" class="list"></ul>
+  </section>
+
+  <!-- ログ -->
+  <section id="page-log" class="page scroll">
+    <h2>フライトログ</h2>
+    <p class="hint">IGC ファイルを書き出して XContest などにアップロードできます。</p>
+    <ul id="log-list" class="list"></ul>
+  </section>
+
+  <!-- 設定 -->
+  <section id="page-set" class="page scroll">
+    <h2>設定</h2>
+    <form id="settings">
+      <fieldset>
+        <legend>パイロット / 機体（IGC に記録）</legend>
+        <label>パイロット名 <input name="pilot" autocomplete="name"></label>
+        <label>機体名 <input name="glider" placeholder="例: Wills Wing Sport 2"></label>
+      </fieldset>
+      <fieldset>
+        <legend>ポーラー（自分の機体の値）</legend>
+        <label>最良 L/D <input name="bestLD" type="number" step="0.5" min="3" max="25" inputmode="decimal"></label>
+        <label>最良滑空速度 km/h <input name="trimKmh" type="number" step="1" min="20" max="90" inputmode="decimal"></label>
+        <label>到着の安全マージン m <input name="margin" type="number" step="10" min="0" inputmode="numeric"></label>
+      </fieldset>
+      <fieldset>
+        <legend>高度の補正</legend>
+        <label>離陸場の標高 m <input id="elev" type="number" inputmode="numeric"></label>
+        <div class="row">
+          <button type="button" id="alt-set">現在高度をこの標高に合わせる</button>
+          <button type="button" id="alt-reset">補正リセット</button>
+        </div>
+        <p class="hint">現在の補正: <b id="alt-offset">0</b> m</p>
+      </fieldset>
+      <fieldset>
+        <legend>表示</legend>
+        <label>テーマ
+          <select name="theme"><option value="day">昼（白背景・日差し向け）</option><option value="night">夜（黒背景）</option></select>
+        </label>
+        <label>GPSバリオの平均時間 秒 <input name="varioWindow" type="number" min="2" max="20" inputmode="numeric"></label>
+        <label>L/D の平均時間 秒 <input name="ldWindow" type="number" min="10" max="120" inputmode="numeric"></label>
+        <label>離陸判定速度 km/h <input name="autoStartKmh" type="number" min="5" max="40" inputmode="numeric"></label>
+      </fieldset>
+    </form>
+    <div class="row">
+      <button id="demo">デモ飛行（地上で練習）</button>
+      <button id="stop" class="danger">計器を停止して保存</button>
+    </div>
+    <p class="hint">
+      iPhone の注意: 画面が消えると GPS 記録が止まります。<br>
+      「設定 → 画面表示と明るさ → 自動ロック → なし」にし、低電力モードをオフにしてください。<br>
+      バリオ音は SkyBean を使ってください（Safari からは iPhone の気圧センサーを使えないため、この画面のバリオは GPS 由来で遅れがあります）。
+    </p>
+    <p class="hint" id="version"></p>
+  </section>
+</main>
+
+<nav id="tabs">
+  <button data-page="main" class="active">計器</button>
+  <button data-page="map">マップ</button>
+  <button data-page="wp">WP</button>
+  <button data-page="log">ログ</button>
+  <button data-page="set">設定</button>
+</nav>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <h1>HG 計器</h1>
+    <p>ハンググライダー用 GPS フライト計器</p>
+    <button id="start-btn" class="primary">計器をスタート</button>
+    <button id="start-demo">デモ飛行</button>
+    <p class="hint">位置情報の許可を求められたら「許可」を選んでください。</p>
+    <p class="hint" id="install-hint">Safari の共有ボタン →「ホーム画面に追加」でアプリとして使えます（オフラインでも動きます）。</p>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,147 @@
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+body[data-theme="day"] {
+  --bg: #ffffff; --fg: #000000; --tile: #f1f1f1; --line: #000000;
+  --muted: #444444; --accent: #0050c8; --up: #008a2e; --down: #c8001e;
+  --btn: #e2e2e2; --track: #555555;
+}
+body[data-theme="night"] {
+  --bg: #000000; --fg: #ffffff; --tile: #161616; --line: #555555;
+  --muted: #bbbbbb; --accent: #5aa0ff; --up: #3ddc6a; --down: #ff5468;
+  --btn: #2a2a2a; --track: #aaaaaa;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: -apple-system, "Hiragino Sans", "Helvetica Neue", sans-serif;
+  display: flex; flex-direction: column;
+  overflow: hidden; overscroll-behavior: none;
+  -webkit-user-select: none; user-select: none;
+}
+
+#status {
+  display: flex; gap: 8px; align-items: center; justify-content: space-between;
+  padding: calc(var(--safe-top) + 4px) 10px 4px;
+  font-weight: 700; font-size: 16px;
+  border-bottom: 2px solid var(--line);
+}
+.badge { padding: 2px 8px; border-radius: 6px; background: var(--btn); }
+.badge.ok { background: var(--up); color: #fff; }
+.badge.warn { background: #e0a000; color: #000; }
+.badge.bad { background: var(--down); color: #fff; }
+.badge.rec { background: var(--down); color: #fff; }
+#ftime, #clock { font-variant-numeric: tabular-nums; font-size: 20px; }
+
+main { flex: 1; position: relative; min-height: 0; }
+.page { display: none; position: absolute; inset: 0; flex-direction: column; }
+.page.active { display: flex; }
+.page.scroll { overflow-y: auto; padding: 12px 16px 24px; -webkit-user-select: text; user-select: text; }
+
+.grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px;
+}
+.tile {
+  background: var(--tile); border: 2px solid var(--line); border-radius: 8px;
+  padding: 2px 8px 4px; min-width: 0; overflow: hidden;
+}
+.span2 { grid-column: span 2; }
+.label { font-size: 14px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.label small { font-weight: 400; }
+.value {
+  font-size: 44px; font-weight: 800; line-height: 1.05;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.value.small { font-size: 30px; }
+.big .value { font-size: 76px; text-align: center; }
+.sub { font-size: 14px; color: var(--muted); }
+.sub b { color: var(--fg); font-size: 18px; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+.wind { display: flex; align-items: center; gap: 6px; }
+.arrow { display: inline-block; transition: transform .3s; font-weight: 900; }
+.goalrow { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.goalrow > div { text-align: center; }
+.big-arrow { font-size: 52px; line-height: 1; color: var(--accent); }
+
+canvas { display: block; width: 100%; flex: 1; min-height: 0; touch-action: none; }
+#mini-map { border-top: 2px solid var(--line); }
+
+.map-ctl {
+  position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px;
+}
+.map-ctl button { min-width: 56px; }
+
+#tabs {
+  display: flex; border-top: 2px solid var(--line);
+  padding-bottom: var(--safe-bottom);
+}
+#tabs button {
+  flex: 1; border: 0; border-radius: 0; background: var(--bg); color: var(--fg);
+  font-size: 17px; font-weight: 700; padding: 12px 0;
+}
+#tabs button.active { background: var(--fg); color: var(--bg); }
+
+button, .btn {
+  font: inherit; font-size: 17px; font-weight: 700;
+  padding: 12px 14px; border-radius: 10px; border: 2px solid var(--line);
+  background: var(--btn); color: var(--fg); cursor: pointer; display: inline-block; text-align: center;
+}
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-size: 22px; padding: 18px; }
+button.danger { color: var(--down); }
+button.small { padding: 6px 10px; font-size: 15px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.row > * { flex: 1 1 auto; }
+.hint { font-size: 14px; color: var(--muted); line-height: 1.5; }
+h2 { margin: 4px 0 8px; }
+
+fieldset { border: 2px solid var(--line); border-radius: 10px; margin: 0 0 12px; padding: 8px 12px; }
+legend { font-weight: 700; padding: 0 6px; }
+label { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 8px 0; font-size: 16px; }
+input, select {
+  font: inherit; font-size: 17px; padding: 8px; border-radius: 8px;
+  border: 2px solid var(--line); background: var(--bg); color: var(--fg);
+  width: 50%; min-width: 0;
+}
+
+.list { list-style: none; padding: 0; margin: 0; }
+.list li {
+  display: flex; align-items: center; gap: 8px; padding: 10px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.list li .grow { flex: 1; min-width: 0; }
+.list li .name { font-weight: 700; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list li .meta { font-size: 14px; color: var(--muted); }
+.list li.landing .name { color: var(--up); }
+.list li.goal { background: var(--tile); }
+
+.overlay {
+  position: fixed; inset: 0; background: var(--bg); z-index: 10;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.overlay.hidden { display: none; }
+.card { max-width: 420px; width: 100%; display: flex; flex-direction: column; gap: 12px; text-align: center; }
+.card h1 { margin: 0; font-size: 36px; }
+
+@media (orientation: landscape) {
+  #page-main { flex-direction: row; }
+  #page-main .grid { width: 55%; flex-shrink: 0; align-content: start; }
+  #mini-map { border-top: 0; border-left: 2px solid var(--line); }
+  .grid { gap: 3px; padding: 3px; }
+  .label, .sub { font-size: 12px; }
+  .sub b { font-size: 14px; }
+  .big .value { font-size: 46px; }
+  .value { font-size: 30px; }
+  .value.small { font-size: 22px; }
+  .big-arrow { font-size: 34px; }
+  #status { font-size: 14px; padding-top: 2px; padding-bottom: 2px; }
+  #ftime, #clock { font-size: 16px; }
+  #tabs button { padding: 6px 0; font-size: 15px; }
+}
+@media (max-height: 700px) and (orientation: portrait) {
+  .big .value { font-size: 60px; }
+  .value { font-size: 36px; }
+}

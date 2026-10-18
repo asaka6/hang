@@ -5,7 +5,7 @@ XCTrack は Android 専用の無料フライトインストゥルメントアプ
 
 > メニュー名はアプリのバージョンや表示言語によって多少異なることがあります。
 
-> **iPhone をお使いの場合**：XCTrack は iPhone では使えません。代わりのアプリと設定は [IPHONE.md](IPHONE.md) を参照してください。
+> **iPhone をお使いの場合**：XCTrack は iPhone では使えません。代わりのアプリと設定は [IPHONE.md](IPHONE.md)、自作の iPhone 用計器アプリは [APP.md](APP.md) を参照してください。
 
 ---
 
