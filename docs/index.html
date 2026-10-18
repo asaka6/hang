@@ -58,7 +58,7 @@
     <canvas id="map"></canvas>
     <div id="map-status" class="map-status" hidden></div>
     <div class="map-ctl">
-      <button id="map-layer">標準地図</button>
+      <button id="map-layer">シンプル</button>
       <button id="map-save">保存</button>
       <button data-zoom="-1">−</button>
       <button data-zoom="1">＋</button>
@@ -139,6 +139,7 @@
         <legend>背景地図</legend>
         <label>地図
           <select name="mapLayer">
+            <option value="simple">シンプル（地形だけ・おすすめ）</option>
             <option value="gsi-std">地理院 標準地図</option>
             <option value="gsi-pale">地理院 淡色地図</option>
             <option value="gsi-photo">地理院 航空写真</option>

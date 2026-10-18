@@ -4,6 +4,10 @@ export const TILE_CACHE = 'hg-tiles';
 const R = 6378137;
 
 export const LAYERS = {
+  simple: {
+    name: 'シンプル（地形だけ）', max: 16, attr: '出典: 国土地理院', wash: 0.5,
+    url: 'https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png',
+  },
   'gsi-std': {
     name: '地理院 標準地図', max: 18, attr: '出典: 国土地理院',
     url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',

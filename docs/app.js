@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.6.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -53,9 +53,10 @@ const db = (() => {
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 7.5, trimKmh: 35, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
-  mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10, voice: 'on',
+  mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'simple', saveRadiusKm: 10, voice: 'on',
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
+if (!settings.simpleMap) { settings.mapLayer = 'simple'; settings.simpleMap = true; save('settings', settings); }
 let waypoints = load('waypoints', []);
 let goal = load('goal', null);
 let task = load('task', null); // XCTrack の .xctsk から読み込んだ大会タスク
@@ -717,6 +718,7 @@ function drawMap(canvas, widthM, small, view = {}) {
   const scale = w / widthM; // px / m
   const cx = w / 2, cy = h * (settings.trackUp && !view.center ? 0.62 : 0.5);
   const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
+  ctx.lineJoin = 'round'; // 文字の縁取りにトゲが出ないように
   const P = (lat, lon) => {
     const p = C.toXY(f.lat, f.lon, lat, lon);
     const x = p.x * cos - p.y * sin, y = p.x * sin + p.y * cos;
@@ -728,7 +730,8 @@ function drawMap(canvas, widthM, small, view = {}) {
   if (settings.mapLayer !== 'none') {
     T.drawTiles(ctx, settings.mapLayer, P, f, scale, Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), dpr);
     // 軌跡や文字が見えるように少しだけ薄く（夜は暗く）する
-    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.12)';
+    const wash = T.LAYERS[settings.mapLayer].wash ?? 0.12;
+    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : `rgba(255,255,255,${wash})`;
     ctx.fillRect(0, 0, w, h);
   }
 
@@ -761,9 +764,11 @@ function drawMap(canvas, widthM, small, view = {}) {
   // ウェイポイント
   ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
   for (const wp of waypoints) {
+    const isGoal = goal && goal.lat === wp.lat && goal.lon === wp.lon;
+    // 飛行画面では飛ぶのに必要な地点（着陸地・テイクオフ・危険・ゴール）だけ
+    if (small && !isGoal && !wp.landing && wp.kind !== 'takeoff' && wp.kind !== 'nogo') continue;
     const [x, y] = P(wp.lat, wp.lon);
     if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
-    const isGoal = goal && goal.lat === wp.lat && goal.lon === wp.lon;
     ctx.strokeStyle = fg; ctx.lineWidth = 2;
     if (wp.kind === 'nogo') {
       ctx.strokeStyle = '#e00000'; ctx.lineWidth = 4;
@@ -1288,7 +1293,7 @@ async function exportIGC(lg) {
 
 const form = $('#settings');
 function renderSettings() {
-  $('#map-layer').textContent = settings.mapLayer === 'none' ? '地図なし' : T.LAYERS[settings.mapLayer].name.replace('地理院 ', '').replace('（等高線）', '');
+  $('#map-layer').textContent = settings.mapLayer === 'none' ? '地図なし' : T.LAYERS[settings.mapLayer].name.replace('地理院 ', '').replace(/（.*）/, '');
   for (const el of form.elements) if (el.name && el.name in settings) el.value = settings[el.name];
   setText('alt-offset', signed(settings.altOffset, 0));
   document.body.dataset.theme = settings.theme;
