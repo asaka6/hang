@@ -1,5 +1,5 @@
 // オフラインで動かすためのサービスワーカー（アプリ本体をキャッシュ）
-const CACHE = 'hg-v1.0.0';
+const CACHE = 'hg-v1.1.0';
 const FILES = [
   './', 'index.html', 'style.css', 'app.js', 'calc.js', 'sim.js',
   'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',

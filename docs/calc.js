@@ -194,6 +194,25 @@ export function goalInfo(pos, alt, goal, opts, wind) {
 
 // ---- ウェイポイントの読み込み ----
 
+// 名前・コードから地点の種類を推定する
+// 日本の大会でよく使うコード: GL = ゴール/メインランディング, SL = サブランディング,
+// TO = テイクオフ, NG = 進入禁止・危険地点
+export function classifyWaypoint(code = '', desc = '') {
+  const c = code.toUpperCase(), d = desc.toUpperCase();
+  if (/^NG/.test(c)) return 'nogo';
+  if (/^(GL|SL|LD)/.test(c) || /(^|[^A-Z])(LD|LZ|GOAL)([^A-Z]|$)|LANDING/.test(d)) return 'landing';
+  if (/^TO/.test(c) || /TAKE ?OFF/.test(d)) return 'takeoff';
+  return 'turnpoint';
+}
+
+function makeWp(code, desc, lat, lon, alt, kind) {
+  kind ||= classifyWaypoint(code, desc);
+  return {
+    name: desc || code, code: desc ? code : '', lat, lon, alt,
+    kind, landing: kind === 'landing',
+  };
+}
+
 // SeeYou .cup 形式: name,code,country,lat,lon,elev,style,...
 // 緯度 "3540.123N" (DDMM.mmm), 経度 "13912.345E" (DDDMM.mmm), 標高 "1234.0m" / "4000ft"
 function parseCupCoord(s, degDigits) {
@@ -236,40 +255,204 @@ export function parseCup(text) {
     const lon = parseCupCoord(c[4], 3);
     if (lat == null || lon == null) continue; // ヘッダ行など
     const style = Number(c[6]);
-    wps.push({
-      name: c[0].trim() || c[1].trim(),
-      lat, lon,
-      alt: parseElev(c[5]),
-      landing: [2, 3, 4, 5].includes(style), // 着陸可能な地点
-    });
+    const name = c[0].trim() || c[1].trim();
+    // style 2〜5 は着陸可能な地点
+    const kind = [2, 3, 4, 5].includes(style) ? 'landing' : classifyWaypoint(c[1].trim(), name);
+    wps.push({ ...makeWp('', name, lat, lon, parseElev(c[5]), kind), code: c[1].trim() });
   }
   return wps;
 }
 
-// OziExplorer .wpt / GEO (FormatGEO, CompeGPS 等) は形式が多いので、
-// 「名前と10進の緯度経度・標高」が拾えるものだけ対応する
-export function parseWpt(text) {
+// FormatGEO（XCTrack・大会でよく使う .wpt）:
+// $FormatGEO
+// A01014    N 36 26 39.52    E 136 38 02.31   141  TURUGI YOCHIEN
+export function parseGeo(text) {
   const wps = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
+  const re = /^(\S+)\s+([NS])\s+(\d+)\s+(\d+)\s+([\d.]+)\s+([EW])\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(-?[\d.]+)\s*(.*)$/i;
+  for (const raw of text.split(/\r?\n/)) {
+    const m = raw.trim().match(re);
+    if (!m) continue;
+    let lat = Number(m[3]) + Number(m[4]) / 60 + Number(m[5]) / 3600;
+    let lon = Number(m[7]) + Number(m[8]) / 60 + Number(m[9]) / 3600;
+    if (/S/i.test(m[2])) lat = -lat;
+    if (/W/i.test(m[6])) lon = -lon;
+    wps.push(makeWp(m[1], m[11].trim(), lat, lon, Number(m[10])));
+  }
+  return wps;
+}
+
+// OziExplorer .wpt: No,Name,Lat,Lon,... で 15 列目が標高 [ft]
+export function parseOzi(text) {
+  const wps = [];
+  for (const line of text.split(/\r?\n/)) {
     const c = line.split(',').map((s) => s.trim());
-    // OziExplorer: No,Name,Lat,Lon,...,Alt(ft) が 15 列目
-    if (c.length >= 15 && !Number.isNaN(Number(c[2])) && !Number.isNaN(Number(c[3])) && c[2] !== '') {
+    if (c.length >= 15 && c[2] !== '' && !Number.isNaN(Number(c[2])) && !Number.isNaN(Number(c[3]))) {
       const altFt = Number(c[14]);
-      wps.push({
-        name: c[1], lat: Number(c[2]), lon: Number(c[3]),
-        alt: altFt > -777 ? altFt * 0.3048 : 0, landing: false,
-      });
+      wps.push(makeWp('', c[1], Number(c[2]), Number(c[3]), altFt > -777 ? altFt * 0.3048 : 0));
     }
   }
   return wps;
 }
 
 export function parseWaypoints(text, filename = '') {
+  if (/^\s*\$FormatGEO/i.test(text)) return parseGeo(text);
+  if (/OziExplorer/i.test(text)) return parseOzi(text);
   if (/\.cup$/i.test(filename)) return parseCup(text);
-  const cup = parseCup(text);
-  if (cup.length) return cup;
-  return parseWpt(text);
+  for (const parse of [parseCup, parseGeo, parseOzi]) {
+    const w = parse(text);
+    if (w.length) return w;
+  }
+  return [];
+}
+
+// ---- XCTrack タスク (.xctsk) ----
+
+function wpFromXc(w) {
+  return makeWp(w.name || '', w.description || '', w.lat, w.lon, w.altSmoothed ?? w.alt ?? 0);
+}
+
+export function parseTask(obj) {
+  if (typeof obj === 'string') {
+    if (/^XCTSK:/.test(obj.trim())) throw new Error('QR コード形式のタスク (XCTSK:) には未対応です。.xctsk ファイルを使ってください');
+    obj = JSON.parse(obj);
+  }
+  if (!obj || !Array.isArray(obj.turnpoints) || !obj.turnpoints.length) {
+    throw new Error('タスクのターンポイントが見つかりません（.xctsk の version 1 形式に対応）');
+  }
+  return {
+    taskType: obj.taskType || 'CLASSIC',
+    turnpoints: obj.turnpoints.map((tp) => ({
+      ...wpFromXc(tp.waypoint),
+      radius: Number(tp.radius) || 400,
+      type: tp.type || '', // SSS / ESS / TAKEOFF / ''
+    })),
+    sss: obj.sss ? {
+      type: obj.sss.type || 'RACE',
+      direction: obj.sss.direction || 'EXIT',
+      timeGates: obj.sss.timeGates || [],
+    } : null,
+    goal: { type: (obj.goal && obj.goal.type) || 'CYLINDER', deadline: obj.goal && obj.goal.deadline },
+  };
+}
+
+// "02:00:00Z" を、時刻 t に最も近い日付の UTC 時刻 [ms] にする
+export function utcTimeNear(hms, t) {
+  const m = /^(\d\d):(\d\d)(?::(\d\d))?Z?$/.exec(hms || '');
+  if (!m) return null;
+  const d = new Date(t);
+  const base = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) +
+    ((+m[1] * 60 + +m[2]) * 60 + +(m[3] || 0)) * 1000;
+  const day = 86400000;
+  return [base - day, base, base + day].reduce((a, b) => (Math.abs(b - t) < Math.abs(a - t) ? b : a));
+}
+
+export function startGates(task, t) {
+  return ((task.sss && task.sss.timeGates) || []).map((g) => utcTimeNear(g, t)).filter((x) => x != null).sort((a, b) => a - b);
+}
+
+export function newTaskProgress(task) {
+  let idx = 0;
+  while (idx < task.turnpoints.length - 1 && task.turnpoints[idx].type === 'TAKEOFF') idx++;
+  return { idx, startT: null, essT: null, goalT: null };
+}
+
+const insideTp = (tp, p) => distance(p.lat, p.lon, tp.lat, tp.lon) <= tp.radius;
+
+// 新しい位置 f を受けてタスクの進行を更新する（変化がなければ同じオブジェクトを返す）
+export function taskStep(task, prog, prev, f) {
+  const tps = task.turnpoints;
+  if (!prev || prog.idx >= tps.length) return prog;
+  const sssIdx = tps.findIndex((tp) => tp.type === 'SSS');
+  const crossedStart = () => {
+    const gates = startGates(task, f.t);
+    if (gates.length && f.t < gates[0]) return false;
+    const sss = tps[sssIdx];
+    const a = insideTp(sss, prev), b = insideTp(sss, f);
+    return (task.sss && task.sss.direction === 'ENTER') ? !a && b : a && !b;
+  };
+  if (prog.idx === sssIdx) {
+    return crossedStart() ? { ...prog, idx: prog.idx + 1, startT: f.t } : prog;
+  }
+  // スタート直後にもう一度スタートを切り直した場合はスタート時刻を更新
+  if (sssIdx >= 0 && prog.idx === sssIdx + 1 && crossedStart()) prog = { ...prog, startT: f.t };
+  const tp = tps[prog.idx];
+  if (!insideTp(tp, f)) return prog;
+  const next = { ...prog, idx: prog.idx + 1 };
+  if (tp.type === 'ESS') next.essT = f.t;
+  if (next.idx >= tps.length) { next.goalT = f.t; next.essT ??= f.t; }
+  return next;
+}
+
+// 次のターンポイントからゴールまでの距離と到着高度（シリンダー中心を結ぶ簡易ルート）
+export function taskInfo(task, prog, pos, alt, opts, wind) {
+  const tps = task.turnpoints;
+  if (prog.idx >= tps.length) return null;
+  const tp = tps[prog.idx];
+  const dCenter = distance(pos.lat, pos.lon, tp.lat, tp.lon);
+  const toEdge = Math.abs(dCenter - tp.radius);
+  const legs = [{ d: Math.max(0, dCenter - (prog.idx === tps.length - 1 ? tp.radius : 0)), brg: bearing(pos.lat, pos.lon, tp.lat, tp.lon) }];
+  for (let i = prog.idx + 1; i < tps.length; i++) {
+    const a = tps[i - 1], b = tps[i];
+    let d = distance(a.lat, a.lon, b.lat, b.lon);
+    if (i === tps.length - 1) d = Math.max(0, d - b.radius);
+    legs.push({ d, brg: bearing(a.lat, a.lon, b.lat, b.lon) });
+  }
+  let remaining = 0, need = 0;
+  for (const l of legs) {
+    remaining += l.d;
+    const g = groundGlide(opts.bestLD, opts.trimKmh, l.brg, wind);
+    need += g > 0 ? l.d / g : Infinity;
+  }
+  const goal = tps[tps.length - 1];
+  return {
+    tp, toEdge, brg: legs[0].brg, remaining,
+    arrival: alt - need - (goal.alt || 0),
+    reqLD: alt - (goal.alt || 0) - (opts.margin || 0) > 0 ? remaining / (alt - (goal.alt || 0) - (opts.margin || 0)) : Infinity,
+  };
+}
+
+// ---- XCTrack 設定バックアップ (.xcfg) ----
+
+// 本アプリで使える項目だけ取り出す（画面レイアウトや音の設定は XCTrack 専用なので対象外）
+export function parseXcfg(obj) {
+  if (typeof obj === 'string') obj = JSON.parse(obj);
+  const p = obj && obj.preferences;
+  if (!p) throw new Error('XCTrack の設定ファイルではありません');
+  const out = { settings: {}, info: obj.info || {} };
+  if (p['Pilot.Name']) out.pilot = String(p['Pilot.Name']);
+  if (p['Glider.Name']) out.glider = String(p['Glider.Name']);
+  if (Number(p['Glider.TrimSpeed']) > 0) out.settings.trimKmh = Number(p['Glider.TrimSpeed']);
+  if (Number(p['Glider.GoalGlideRatio']) > 0) out.settings.bestLD = Number(p['Glider.GoalGlideRatio']);
+  if (p['Unit.WindSpeed']) out.settings.windUnit = /m\/s/.test(p['Unit.WindSpeed']) ? 'ms' : 'kmh';
+  if (p['Display.Theme']) out.settings.theme = /black|dark|night/i.test(p['Display.Theme']) ? 'night' : 'day';
+  const nav = p['Navigation.State'];
+  if (nav && typeof nav === 'object') {
+    const active = nav._active || '';
+    const comp = nav['org.xcontest.XCTrack.navig.TaskCompetition'];
+    const toWp = nav['org.xcontest.XCTrack.navig.TaskToWaypoint'];
+    if (/TaskCompetition/.test(active) && comp) {
+      try { out.task = parseTask(comp); } catch { /* 空のタスク */ }
+    }
+    if (/TaskToWaypoint/.test(active) && Array.isArray(toWp) && toWp[0]) out.goal = wpFromXc(toWp[0]);
+  }
+  out.waypointFiles = (p['Navigation.WaypointFiles'] && p['Navigation.WaypointFiles'].files) || [];
+  out.airspaceFiles = p['Airspace.Files'] || [];
+  return out;
+}
+
+// ファイルの中身から種類を判定して読み込む
+export function readAnyFile(text, filename = '') {
+  const t = text.replace(/^﻿/, '').trim();
+  if (t.startsWith('{')) {
+    const obj = JSON.parse(t);
+    if (obj.preferences) return { kind: 'settings', data: parseXcfg(obj) };
+    if (obj.turnpoints) return { kind: 'task', data: parseTask(obj) };
+    throw new Error('対応していない JSON ファイルです');
+  }
+  if (/^XCTSK:/.test(t)) parseTask(t); // エラーメッセージを出す
+  const wps = parseWaypoints(t, filename);
+  if (wps.length) return { kind: 'waypoints', data: wps };
+  throw new Error('ウェイポイント・タスク・XCTrack 設定のどれとしても読み込めませんでした');
 }
 
 // ---- IGC ----

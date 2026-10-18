@@ -117,6 +117,8 @@ input, select {
 .list li .meta { font-size: 14px; color: var(--muted); }
 .list li.landing .name { color: var(--up); }
 .list li.goal { background: var(--tile); }
+.list li.nogo .name { color: var(--down); }
+#v-goal-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .overlay {
   position: fixed; inset: 0; background: var(--bg); z-index: 10;

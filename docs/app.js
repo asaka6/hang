@@ -1,7 +1,7 @@
 import * as C from './calc.js';
 import { createSim } from './sim.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -51,11 +51,13 @@ const db = (() => {
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 11, trimKmh: 38, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
-  zoom: 4, trackUp: true,
+  zoom: 4, trackUp: true, windUnit: 'ms',
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 let waypoints = load('waypoints', []);
 let goal = load('goal', null);
+let task = load('task', null); // XCTrack の .xctsk から読み込んだ大会タスク
+let prog = load('taskProg', null);
 
 const ZOOMS = [200, 400, 800, 1500, 3000, 6000, 12000, 25000, 50000]; // 画面幅 [m]
 
@@ -104,6 +106,15 @@ function onFix(f) {
   f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
   detectFlight(f);
   detectThermal(f);
+  if (task && prog) {
+    const np = C.taskStep(task, prog, prev, f);
+    if (np !== prog) {
+      if (np.idx !== prog.idx) beep(np.idx >= task.turnpoints.length ? 3 : 2);
+      else if (np.startT !== prog.startT) beep(1);
+      prog = np;
+      save('taskProg', prog);
+    }
+  }
   if (S.circling && f.t - S.windT > 5000) {
     const w = C.estimateWind(S.fixes);
     if (w) { S.wind = w; S.windT = f.t; }
@@ -301,23 +312,36 @@ function render() {
   const hdg = gt && gt.hdg != null ? gt.hdg : null;
   const rel = (b) => (settings.trackUp && hdg != null ? b - hdg : b);
   if (S.wind) {
-    setText('v-wind', fmt(S.wind.speed * 3.6));
+    setText('v-wind', settings.windUnit === 'ms' ? fmt(S.wind.speed, 1) : fmt(S.wind.speed * 3.6));
     // 矢印は風が吹いていく向き
     $('#v-wind-arrow').style.transform = `rotate(${rel(S.wind.from + 180)}deg)`;
     const age = Math.round((f.t - S.windT) / 60000);
     setText('v-wind-sub', `${Math.round(S.wind.from)}°から ${age ? age + '分前' : '今'}`);
   }
 
-  if (goal) {
+  const ti = task && prog ? C.taskInfo(task, prog, f, a, settings, S.wind) : null;
+  if (ti) {
+    const n = task.turnpoints.length;
+    const tpType = ti.tp.type === 'SSS' ? 'スタート' : ti.tp.type === 'ESS' && prog.idx === n - 1 ? 'ゴール' : ti.tp.type === 'ESS' ? 'ESS' : prog.idx === n - 1 ? 'ゴール' : 'TP';
+    setText('v-goal-name', `タスク ${prog.idx + 1}/${n} ${tpType} ${ti.tp.name} (${ti.tp.radius}m)`);
+    setText('v-goal-dist', fmt(ti.toEdge / 1000, ti.toEdge < 10000 ? 1 : 0));
+    setText('v-goal-arr', fmt(ti.arrival));
+    setUpDown('v-goal-arr', ti.arrival - settings.margin);
+    setText('v-goal-ld', ti.reqLD > 99 ? '>99' : fmt(ti.reqLD, 1));
+    $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? ti.brg - hdg : ti.brg}deg)`;
+    setText('v-goal-sub', taskStatus(f.t, ti));
+  } else if (goal) {
     const g = C.goalInfo(f, a, goal, settings, S.wind);
-    setText('v-goal-name', goal.name);
+    setText('v-goal-sub', '');
+    setText('v-goal-name', `ゴール ${goal.name}`);
     setText('v-goal-dist', fmt(g.dist / 1000, g.dist < 10000 ? 1 : 0));
     setText('v-goal-arr', fmt(g.arrival));
     setUpDown('v-goal-arr', g.arrival - settings.margin);
     setText('v-goal-ld', g.reqLD > 99 ? '>99' : fmt(g.reqLD, 1));
     $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? g.brg - hdg : g.brg}deg)`;
   } else {
-    setText('v-goal-name', '未設定（WPタブで設定）');
+    setText('v-goal-name', task && prog ? 'タスク完了' : 'ゴール 未設定（WPタブで設定）');
+    setText('v-goal-sub', task && prog && prog.goalT ? `ゴール ${clock(prog.goalT)}` : '');
   }
 
   // ステータスバー
@@ -329,6 +353,34 @@ function render() {
   if (S.flightStart != null) {
     const sec = Math.floor(((S.flightEnd ?? f.t) - S.flightStart) / 1000);
     setText('ftime', `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}`);
+  }
+}
+
+const clock = (t) => { const d = new Date(t); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const mmss = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+function taskStatus(now, ti) {
+  const gates = C.startGates(task, now);
+  const parts = [`ゴールまで ${(ti.remaining / 1000).toFixed(1)} km`];
+  if (prog.startT == null && gates.length) {
+    const next = gates.find((g) => g > now);
+    parts.unshift(next ? `スタートまで ${mmss(next - now)}` : `スタート開放 ${clock(gates[0])}〜`);
+  } else if (prog.startT != null) {
+    parts.unshift(`スタート ${clock(prog.startT)} 経過 ${mmss(now - prog.startT)}`);
+  }
+  return parts.join(' ・ ');
+}
+
+// ターンポイント通過などの合図音（スタートボタンを押した時に音声を有効化）
+let audio = null;
+function beep(n = 1) {
+  if (!audio) return;
+  for (let i = 0; i < n; i++) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    const t0 = audio.currentTime + i * 0.25;
+    o.frequency.value = 1400; g.gain.value = 0.4;
+    o.connect(g); g.connect(audio.destination);
+    o.start(t0); o.stop(t0 + 0.15);
   }
 }
 
@@ -405,10 +457,40 @@ function drawMap(canvas, widthM, small) {
     const [x, y] = P(wp.lat, wp.lon);
     if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
     const isGoal = goal && goal.lat === wp.lat && goal.lon === wp.lon;
-    ctx.beginPath(); ctx.arc(x, y, isGoal ? 9 : 6, 0, Math.PI * 2);
-    ctx.fillStyle = wp.landing ? '#00a040' : css.getPropertyValue('--accent');
-    ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = fg; ctx.fillText(wp.name, x + 10, y + 5);
+    ctx.strokeStyle = fg; ctx.lineWidth = 2;
+    if (wp.kind === 'nogo') {
+      ctx.strokeStyle = '#e00000'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x - 8, y - 8); ctx.lineTo(x + 8, y + 8); ctx.moveTo(x + 8, y - 8); ctx.lineTo(x - 8, y + 8); ctx.stroke();
+    } else if (wp.kind === 'takeoff') {
+      ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 8, y + 6); ctx.lineTo(x - 8, y + 6); ctx.closePath();
+      ctx.fillStyle = '#e0a000'; ctx.fill(); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(x, y, isGoal ? 9 : 6, 0, Math.PI * 2);
+      ctx.fillStyle = wp.landing ? '#00a040' : css.getPropertyValue('--accent');
+      ctx.fill(); ctx.stroke();
+    }
+    if (!small || wp.landing || isGoal) { ctx.fillStyle = fg; ctx.fillText(wp.name, x + 10, y + 5); }
+  }
+
+  // タスク: シリンダーと経路
+  if (task) {
+    const tps = task.turnpoints;
+    ctx.lineWidth = 2; ctx.strokeStyle = '#a000c8';
+    ctx.beginPath();
+    tps.forEach((tp, i) => { const [x, y] = P(tp.lat, tp.lon); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+    tps.forEach((tp, i) => {
+      const [x, y] = P(tp.lat, tp.lon);
+      const next = prog && i === prog.idx;
+      const done = prog && i < prog.idx;
+      ctx.beginPath(); ctx.arc(x, y, Math.max(3, tp.radius * scale), 0, Math.PI * 2);
+      ctx.fillStyle = next ? 'rgba(160,0,200,0.18)' : 'rgba(160,0,200,0.06)';
+      ctx.fill();
+      ctx.lineWidth = next ? 4 : 2; ctx.strokeStyle = done ? '#999999' : '#a000c8';
+      ctx.stroke();
+      ctx.fillStyle = '#a000c8'; ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(`${i + 1}${tp.type === 'SSS' ? ' S' : tp.type === 'ESS' ? ' E' : ''}`, x - 4, y - Math.max(8, tp.radius * scale) - 4);
+    });
   }
   if (S.takeoff) {
     const [x, y] = P(S.takeoff.lat, S.takeoff.lon);
@@ -416,9 +498,10 @@ function drawMap(canvas, widthM, small) {
     ctx.strokeRect(x - 6, y - 6, 12, 12);
   }
 
-  // ゴールへの線
-  if (goal) {
-    const [x, y] = P(goal.lat, goal.lon);
+  // 次の目標（タスクの次のターンポイント、なければゴール）への線
+  const target = task && prog && prog.idx < task.turnpoints.length ? task.turnpoints[prog.idx] : goal;
+  if (target) {
+    const [x, y] = P(target.lat, target.lon);
     ctx.setLineDash([8, 6]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
     ctx.setLineDash([]);
@@ -450,7 +533,7 @@ function drawMap(canvas, widthM, small) {
     ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(9, -6); ctx.lineTo(-9, -6); ctx.fill();
     ctx.restore();
     ctx.fillStyle = fg; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(`${Math.round(S.wind.speed * 3.6)}km/h`, w - 34, 72);
+    ctx.fillText(settings.windUnit === 'ms' ? `${S.wind.speed.toFixed(1)}m/s` : `${Math.round(S.wind.speed * 3.6)}km/h`, w - 34, 72);
   }
 
   const bar = niceScale(widthM / 4);
@@ -477,7 +560,47 @@ function frame() {
 
 // ---------- ウェイポイント ----------
 
+const KIND = { turnpoint: '一般', landing: '着陸地', takeoff: 'TO', nogo: '危険' };
+
+function renderTask() {
+  const box = $('#task-box');
+  box.hidden = !task;
+  if (!task) return;
+  const ul = $('#task-list');
+  ul.innerHTML = '';
+  const now = last() ? last().t : Date.now();
+  const gates = C.startGates(task, now);
+  setText('task-meta', `${task.sss ? (task.sss.direction === 'ENTER' ? '入るスタート' : '出るスタート') : 'スタートなし'}` +
+    (gates.length ? ` ・ ゲート ${gates.map(clock).join(', ')}` : '') +
+    (task.goal.deadline ? ` ・ 締切 ${clock(C.utcTimeNear(task.goal.deadline, now))}` : '') +
+    (task.goal.type === 'LINE' ? ' ・ ゴールラインはシリンダーとして扱います' : ''));
+  task.turnpoints.forEach((tp, i) => {
+    const li = document.createElement('li');
+    const state = !prog ? '' : i < prog.idx ? '✓ ' : i === prog.idx ? '▶ ' : '';
+    li.className = i === (prog && prog.idx) ? 'goal' : '';
+    li.innerHTML = '<div class="grow"><div class="name"></div><div class="meta"></div></div>';
+    li.querySelector('.name').textContent = `${state}${i + 1}. ${tp.name}`;
+    li.querySelector('.meta').textContent =
+      `${tp.type === 'SSS' ? 'スタート' : tp.type === 'ESS' ? 'ESS' : tp.type === 'TAKEOFF' ? 'テイクオフ' : i === task.turnpoints.length - 1 ? 'ゴール' : 'TP'}` +
+      ` ・ 半径 ${tp.radius} m` + (tp.code ? ` ・ ${tp.code}` : '');
+    ul.appendChild(li);
+  });
+}
+
+function setTask(t) {
+  task = t;
+  prog = t ? C.newTaskProgress(t) : null;
+  save('task', task); save('taskProg', prog);
+  renderTask(); S.dirty = true; render();
+}
+
+$('#task-prev').addEventListener('click', () => { if (prog && prog.idx > 0) { prog = { ...prog, idx: prog.idx - 1 }; save('taskProg', prog); renderTask(); render(); S.dirty = true; } });
+$('#task-next').addEventListener('click', () => { if (prog && prog.idx < task.turnpoints.length) { prog = { ...prog, idx: prog.idx + 1 }; save('taskProg', prog); renderTask(); render(); S.dirty = true; } });
+$('#task-reset').addEventListener('click', () => { if (confirm('タスクの進行を最初に戻しますか？')) setTask(task); });
+$('#task-clear').addEventListener('click', () => { if (confirm('タスクを解除しますか？')) setTask(null); });
+
 function renderWaypoints() {
+  renderTask();
   const f = last();
   const list = waypoints.map((wp, i) => ({ wp, i, d: f ? C.distance(f.lat, f.lon, wp.lat, wp.lon) : null }));
   if (f) list.sort((a, b) => a.d - b.d);
@@ -487,18 +610,24 @@ function renderWaypoints() {
   for (const { wp, i, d } of list) {
     const isGoal = goal && goal.lat === wp.lat && goal.lon === wp.lon;
     const li = document.createElement('li');
-    li.className = (wp.landing ? 'landing ' : '') + (isGoal ? 'goal' : '');
+    li.className = (wp.landing ? 'landing ' : '') + (wp.kind === 'nogo' ? 'nogo ' : '') + (isGoal ? 'goal' : '');
     li.innerHTML = `<div class="grow"><div class="name"></div><div class="meta"></div></div>
       <button class="small" data-act="goal">${isGoal ? '★ゴール' : 'ゴール'}</button>
-      <button class="small" data-act="land">${wp.landing ? '着陸地' : '一般'}</button>
+      <button class="small" data-act="land">${KIND[wp.kind] || (wp.landing ? '着陸地' : '一般')}</button>
       <button class="small danger" data-act="del">削除</button>`;
     li.querySelector('.name').textContent = wp.name;
     li.querySelector('.meta').textContent =
-      `標高 ${Math.round(wp.alt || 0)} m` + (d != null ? ` ・ ${(d / 1000).toFixed(1)} km` : '');
+      (wp.code ? `${wp.code} ・ ` : '') + `標高 ${Math.round(wp.alt || 0)} m` + (d != null ? ` ・ ${(d / 1000).toFixed(1)} km` : '');
     li.addEventListener('click', (e) => {
       const act = e.target.dataset.act;
       if (act === 'goal') { goal = isGoal ? null : { ...wp }; save('goal', goal); }
-      if (act === 'land') { wp.landing = !wp.landing; save('waypoints', waypoints); }
+      if (act === 'land') {
+        // 一般 → 着陸地 → テイクオフ → 危険 → 一般 の順に切り替え
+        const order = ['turnpoint', 'landing', 'takeoff', 'nogo'];
+        wp.kind = order[(order.indexOf(wp.kind || (wp.landing ? 'landing' : 'turnpoint')) + 1) % order.length];
+        wp.landing = wp.kind === 'landing';
+        save('waypoints', waypoints);
+      }
       if (act === 'del' && confirm(`${wp.name} を削除しますか？`)) {
         waypoints.splice(i, 1); save('waypoints', waypoints);
         if (isGoal) { goal = null; save('goal', goal); }
@@ -521,17 +650,53 @@ $('#wp-add').addEventListener('click', () => {
 });
 
 $('#wp-file').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const text = await file.text();
-  const wps = C.parseWaypoints(text, file.name);
-  if (!wps.length) return alert('ウェイポイントを読み込めませんでした（.cup 形式がおすすめです）');
-  const replace = waypoints.length && confirm(`${wps.length} 件読み込みました。\n既存のウェイポイントを置き換えますか？（キャンセル = 追加）`);
-  waypoints = replace ? wps : waypoints.concat(wps);
-  save('waypoints', waypoints);
+  const files = [...e.target.files];
   e.target.value = '';
-  renderWaypoints(); S.dirty = true;
+  for (const file of files) {
+    try {
+      importFile(C.readAnyFile(await file.text(), file.name), file.name);
+    } catch (err) {
+      alert(`${file.name}: ${err.message}`);
+    }
+  }
+  renderWaypoints(); renderSettings(); S.dirty = true; render();
 });
+
+function importFile({ kind, data }, name) {
+  if (kind === 'waypoints') {
+    const replace = waypoints.length && confirm(`${name}\n${data.length} 件のウェイポイントを読み込みました。\n既存のウェイポイントを置き換えますか？（キャンセル = 追加）`);
+    // 同じ地点の重複は追加しない
+    const key = (w) => `${w.lat.toFixed(5)},${w.lon.toFixed(5)}`;
+    const have = new Set((replace ? [] : waypoints).map(key));
+    waypoints = (replace ? [] : waypoints).concat(data.filter((w) => !have.has(key(w))));
+    save('waypoints', waypoints);
+  } else if (kind === 'task') {
+    setTask(data);
+    alert(`タスクを読み込みました（${data.turnpoints.length} ポイント）。\n計器画面に次のターンポイントが表示されます。`);
+  } else if (kind === 'settings') {
+    const lines = [];
+    const s = data.settings;
+    if (s.bestLD) lines.push(`ゴール滑空比 (L/D): ${s.bestLD}`);
+    if (s.trimKmh) lines.push(`トリム速度: ${s.trimKmh} km/h`);
+    if (s.windUnit) lines.push(`風速の単位: ${s.windUnit === 'ms' ? 'm/s' : 'km/h'}`);
+    if (s.theme) lines.push(`テーマ: ${s.theme === 'night' ? '夜（黒背景）' : '昼（白背景）'}`);
+    if (data.goal) lines.push(`ゴール: ${data.goal.name}`);
+    if (data.task) lines.push(`タスク: ${data.task.turnpoints.length} ポイント`);
+    if (!confirm(`XCTrack の設定から次の項目を取り込みます:\n\n${lines.join('\n')}\n\nよろしいですか？`)) return;
+    Object.assign(settings, s);
+    if (data.goal) { goal = data.goal; save('goal', goal); }
+    if (data.task) setTask(data.task);
+    // 配布された設定ファイルは他の人の名前が入っていることがあるので確認する
+    if ((data.pilot || data.glider) && confirm(`パイロット名「${data.pilot || ''}」・機体名「${data.glider || ''}」も設定しますか？\n（他の人の設定ファイルならキャンセル）`)) {
+      if (data.pilot) settings.pilot = data.pilot;
+      if (data.glider) settings.glider = data.glider;
+    }
+    save('settings', settings);
+    const files = data.waypointFiles.concat(data.airspaceFiles);
+    alert('設定を取り込みました。' + (files.length ? `\n\nこの設定で使っていたファイル（別途読み込みが必要）:\n${files.join('\n')}` : '') +
+      '\n\n※ 画面レイアウト・バリオ音・空域の設定は XCTrack 専用のため取り込みません。');
+  }
+}
 
 $('#wp-goal-clear').addEventListener('click', () => { goal = null; save('goal', null); renderWaypoints(); render(); });
 $('#wp-clear').addEventListener('click', () => {
@@ -588,6 +753,7 @@ const form = $('#settings');
 function renderSettings() {
   for (const el of form.elements) if (el.name && el.name in settings) el.value = settings[el.name];
   setText('alt-offset', signed(settings.altOffset, 0));
+  setText('wind-unit', settings.windUnit === 'ms' ? 'm/s' : 'km/h');
   document.body.dataset.theme = settings.theme;
   $('#map-up').textContent = settings.trackUp ? '進行方向↑' : '北↑';
 }
@@ -631,8 +797,11 @@ $('#map-up').addEventListener('click', () => {
 });
 window.addEventListener('resize', () => { S.dirty = true; });
 
-$('#start-btn').addEventListener('click', () => start(false));
-$('#start-demo').addEventListener('click', () => start(true));
+function unlockAudio() {
+  try { audio ||= new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* 音なし */ }
+}
+$('#start-btn').addEventListener('click', () => { unlockAudio(); start(false); });
+$('#start-demo').addEventListener('click', () => { unlockAudio(); start(true); });
 
 // ---------- 起動 ----------
 
@@ -647,4 +816,4 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 // テスト用フック
-window.__hang = { S, onFix, settings, start, stop, db };
+window.__hang = { S, onFix, settings, start, stop, db, importFile, getTask: () => ({ task, prog }) };
