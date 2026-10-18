@@ -71,9 +71,14 @@ canvas { display: block; width: 100%; flex: 1; min-height: 0; touch-action: none
 #mini-map { border-top: 2px solid var(--line); }
 
 .map-ctl {
-  position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px;
+  position: absolute; right: 8px; bottom: 26px; left: 8px;
+  display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
 }
-.map-ctl button { min-width: 56px; }
+.map-ctl button { min-width: 52px; padding: 10px 10px; }
+.map-status {
+  position: absolute; left: 8px; right: 8px; top: 8px; padding: 10px;
+  background: var(--fg); color: var(--bg); border-radius: 8px; font-weight: 700; text-align: center;
+}
 
 #tabs {
   display: flex; border-top: 2px solid var(--line);

@@ -1,7 +1,8 @@
 import * as C from './calc.js';
 import { createSim } from './sim.js';
+import * as T from './tiles.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -51,7 +52,7 @@ const db = (() => {
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 11, trimKmh: 38, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
-  zoom: 4, trackUp: true, windUnit: 'ms',
+  zoom: 4, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10,
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 let waypoints = load('waypoints', []);
@@ -412,13 +413,14 @@ function drawMap(canvas, widthM, small) {
   const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
 
-  const f = last();
+  // GPS が無い時はゴール・タスク・ウェイポイントの周りを表示（飛ぶ前の確認用）
+  const f = last() || mapCenter();
   if (!f) {
     ctx.fillStyle = fg; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('GPS 待ち…', w / 2, h / 2);
     return;
   }
-  const gt = C.groundTrack(S.fixes);
+  const gt = last() ? C.groundTrack(S.fixes) : null;
   const up = settings.trackUp && gt && gt.hdg != null ? gt.hdg : 0;
   const scale = w / widthM; // px / m
   const cx = w / 2, cy = h * (settings.trackUp ? 0.62 : 0.5);
@@ -428,6 +430,14 @@ function drawMap(canvas, widthM, small) {
     const x = p.x * cos - p.y * sin, y = p.x * sin + p.y * cos;
     return [cx + x * scale, cy - y * scale];
   };
+
+  // 背景地図
+  if (settings.mapLayer !== 'none') {
+    T.drawTiles(ctx, settings.mapLayer, P, f, scale, Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), dpr);
+    // 地図の上で軌跡や文字が見えるように少し薄く（夜は暗く）する
+    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.3)';
+    ctx.fillRect(0, 0, w, h);
+  }
 
   // サーマル
   for (const t of S.thermals) {
@@ -442,7 +452,7 @@ function drawMap(canvas, widthM, small) {
   // 軌跡（昇降で色分け）
   ctx.lineWidth = small ? 3 : 4; ctx.lineCap = 'round';
   const start = Math.max(1, S.fixes.length - (small ? 600 : 20000));
-  let [px, py] = P(S.fixes[start - 1].lat, S.fixes[start - 1].lon);
+  let [px, py] = S.fixes.length ? P(S.fixes[start - 1].lat, S.fixes[start - 1].lon) : [0, 0];
   for (let i = start; i < S.fixes.length; i++) {
     const g = S.fixes[i];
     const [x, y] = P(g.lat, g.lon);
@@ -500,7 +510,7 @@ function drawMap(canvas, widthM, small) {
 
   // 次の目標（タスクの次のターンポイント、なければゴール）への線
   const target = task && prog && prog.idx < task.turnpoints.length ? task.turnpoints[prog.idx] : goal;
-  if (target) {
+  if (target && last()) {
     const [x, y] = P(target.lat, target.lon);
     ctx.setLineDash([8, 6]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
@@ -508,12 +518,14 @@ function drawMap(canvas, widthM, small) {
   }
 
   // 自機
+  if (last()) {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate((((gt && gt.hdg != null ? gt.hdg : 0) - up) * Math.PI) / 180);
   ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(14, 10); ctx.lineTo(0, 4); ctx.lineTo(-14, 10); ctx.closePath();
   ctx.fillStyle = fg; ctx.fill();
   ctx.restore();
+  }
 
   // 北マーク・風・縮尺
   ctx.save();
@@ -541,7 +553,61 @@ function drawMap(canvas, widthM, small) {
   ctx.beginPath(); ctx.moveTo(10, h - 12); ctx.lineTo(10 + bar * scale, h - 12); ctx.stroke();
   ctx.fillStyle = fg; ctx.font = '13px sans-serif'; ctx.textAlign = 'left';
   ctx.fillText(bar >= 1000 ? `${bar / 1000} km` : `${bar} m`, 10, h - 18);
+
+  // 地図の出典（利用条件）
+  if (settings.mapLayer !== 'none') {
+    ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(T.LAYERS[settings.mapLayer].attr, w - 4, small ? h - 4 : 12);
+  }
+  if (!last()) {
+    ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('GPS 待ち（地図の確認のみ）', w / 2, 24);
+  }
 }
+
+// GPS が無い時の地図の中心: タスクの最初 → ゴール → 最初のウェイポイント
+function mapCenter() {
+  const p = (task && task.turnpoints[0]) || goal || waypoints[0];
+  return p ? { lat: p.lat, lon: p.lon } : null;
+}
+
+T.setOnTileLoad(() => { S.dirty = true; });
+
+// ---------- 地図の保存（オフライン用） ----------
+
+async function saveMapArea() {
+  const c = last() || mapCenter();
+  if (!c) return alert('GPS の位置もウェイポイントも無いため、保存する場所が決まりません');
+  if (settings.mapLayer === 'none') return alert('背景地図が「なし」になっています');
+  const km = Number(prompt(`${last() ? '現在地' : 'タスク／ゴール'}の周り何 km の地図を保存しますか？`, settings.saveRadiusKm));
+  if (!km || km <= 0) return;
+  if (km > 30) return alert('一度に保存できるのは半径 30 km までです');
+  settings.saveRadiusKm = km; save('settings', settings);
+  const urls = T.tilesForSave(settings.mapLayer, c.lat, c.lon, km * 1000);
+  if (!confirm(`${T.LAYERS[settings.mapLayer].name}を ${urls.length} 枚（約 ${Math.ceil(urls.length * 0.02)} MB）保存します。\nWi-Fi のある所で行ってください。`)) return;
+  const st = $('#map-status');
+  st.hidden = false;
+  const r = await T.saveTiles(urls, (d, n, fail) => { st.textContent = `地図を保存中 ${d} / ${n}` + (fail ? `（失敗 ${fail}）` : ''); });
+  st.textContent = r.failed ? `保存完了（${r.failed} 枚失敗。もう一度押すと続きを保存します）` : '地図を保存しました。電波が無くても表示できます';
+  setTimeout(() => { st.hidden = true; }, 5000);
+  renderMapInfo();
+}
+
+async function renderMapInfo() {
+  setText('map-saved', `${await T.savedTileCount()} 枚`);
+}
+
+$('#map-save').addEventListener('click', saveMapArea);
+$('#map-save2').addEventListener('click', saveMapArea);
+$('#map-clear').addEventListener('click', async () => {
+  if (!confirm('保存した地図をすべて削除しますか？')) return;
+  await T.clearTiles(); renderMapInfo(); S.dirty = true;
+});
+$('#map-layer').addEventListener('click', () => {
+  const keys = ['none', ...Object.keys(T.LAYERS)];
+  settings.mapLayer = keys[(keys.indexOf(settings.mapLayer) + 1) % keys.length];
+  save('settings', settings); renderSettings(); S.dirty = true;
+});
 
 function niceScale(m) {
   const p = 10 ** Math.floor(Math.log10(m));
@@ -751,6 +817,7 @@ async function exportIGC(lg) {
 
 const form = $('#settings');
 function renderSettings() {
+  $('#map-layer').textContent = settings.mapLayer === 'none' ? '地図なし' : T.LAYERS[settings.mapLayer].name.replace('地理院 ', '').replace('（等高線）', '');
   for (const el of form.elements) if (el.name && el.name in settings) el.value = settings[el.name];
   setText('alt-offset', signed(settings.altOffset, 0));
   setText('wind-unit', settings.windUnit === 'ms' ? 'm/s' : 'km/h');
@@ -784,6 +851,7 @@ function showPage(name) {
   $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
   if (name === 'wp') renderWaypoints();
   if (name === 'log') renderLogs();
+  if (name === 'set') renderMapInfo();
   S.dirty = true;
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
@@ -811,7 +879,7 @@ renderSettings();
 tickClock();
 setInterval(tickClock, 10000);
 requestAnimationFrame(frame);
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 

@@ -67,7 +67,10 @@
   <!-- マップ -->
   <section id="page-map" class="page">
     <canvas id="map"></canvas>
+    <div id="map-status" class="map-status" hidden></div>
     <div class="map-ctl">
+      <button id="map-layer">標準地図</button>
+      <button id="map-save">保存</button>
       <button data-zoom="-1">−</button>
       <button data-zoom="1">＋</button>
       <button id="map-up">進行方向↑</button>
@@ -132,6 +135,24 @@
           <button type="button" id="alt-reset">補正リセット</button>
         </div>
         <p class="hint">現在の補正: <b id="alt-offset">0</b> m</p>
+      </fieldset>
+      <fieldset>
+        <legend>背景地図</legend>
+        <label>地図
+          <select name="mapLayer">
+            <option value="gsi-std">地理院 標準地図</option>
+            <option value="gsi-pale">地理院 淡色地図</option>
+            <option value="gsi-photo">地理院 航空写真</option>
+            <option value="otm">OpenTopoMap（等高線）</option>
+            <option value="none">なし</option>
+          </select>
+        </label>
+        <p class="hint">山の上は電波が無いことが多いので、飛ぶ前に Wi-Fi のある所で「地図を保存」してください（現在地、または GPS が無ければタスク／ゴールの周り）。一度見た場所も自動で保存されます。</p>
+        <div class="row">
+          <button type="button" id="map-save2">地図を保存</button>
+          <button type="button" id="map-clear" class="danger">保存した地図を削除</button>
+        </div>
+        <p class="hint">保存済み: <b id="map-saved">-</b></p>
       </fieldset>
       <fieldset>
         <legend>表示</legend>
