@@ -34,8 +34,9 @@ export const xToLon = (x, z) => (x / 2 ** z) * 360 - 180;
 export const yToLat = (y, z) => (Math.atan(Math.sinh(Math.PI - (2 * Math.PI * y) / 2 ** z)) * 180) / Math.PI;
 
 // 画面の 1px にタイルの 1px が近くなるズーム
-export function zoomFor(pxPerM, lat, max) {
-  const z = Math.round(Math.log2((2 * Math.PI * R * Math.cos(rad(lat)) * pxPerM) / 256));
+export function zoomFor(pxPerM, lat, max, dpr = 1) {
+  // 高解像度の画面（iPhone など）では少し細かい地図を使ってくっきり見せる
+  const z = Math.round(Math.log2((2 * Math.PI * R * Math.cos(rad(lat)) * pxPerM) / 256) + (dpr >= 2 ? 0.45 : 0));
   return Math.max(5, Math.min(max, z));
 }
 
@@ -91,10 +92,10 @@ function getTile(layer, z, x, y, request) {
 export function drawTiles(ctx, layer, P, center, pxPerM, radiusPx, dpr) {
   const L = LAYERS[layer];
   if (!L) return;
-  const z = zoomFor(pxPerM, center.lat, L.max);
+  const z = zoomFor(pxPerM, center.lat, L.max, dpr);
   const radiusM = radiusPx / pxPerM;
   const tiles = tilesAround(center.lat, center.lon, radiusM, z);
-  if (tiles.length > 200) return;
+  if (tiles.length > 300) return;
   ctx.save();
   for (const { x, y } of tiles) {
     // 読めていなければ親タイル（粗い地図）の一部を引き伸ばして使う

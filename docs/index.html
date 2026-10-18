@@ -41,15 +41,12 @@
       <div class="fl-body">
         <canvas id="vario-col"></canvas>
         <div class="fl-grid">
-          <div class="cell span2 big"><div class="label">高度 <small>m</small></div><div class="value" id="v-alt">----</div></div>
+          <div class="cell big"><div class="label">高度 <small>m</small></div><div class="value" id="v-alt">----</div></div>
           <div class="cell"><div class="label"><span id="agl-label">対地高度</span> <small>m</small></div><div class="value" id="v-agl">--</div></div>
           <div class="cell"><div class="label">速度 <small>km/h</small></div><div class="value" id="v-spd">--</div></div>
           <div class="cell"><div class="label">上昇 <small>m/s</small></div><div class="value" id="v-vario">--</div></div>
-          <div class="cell"><div class="label">サーマルゲイン <small>m</small></div><div class="value" id="v-gain">--</div><div class="sub">平均 <b id="v-thermal">--</b> m/s</div></div>
+          <div class="cell"><div class="label">ゲイン <small>m</small></div><div class="value" id="v-gain">--</div><div class="sub">平均 <b id="v-thermal">--</b></div></div>
           <div class="cell"><div class="label">滑空比</div><div class="value" id="v-ld">--</div></div>
-          <div class="cell"><div class="label">風 <small id="wind-unit">m/s</small></div>
-            <div class="value wind"><span class="arrow" id="v-wind-arrow">↑</span><span id="v-wind">--</span></div>
-            <div class="sub" id="v-wind-sub">旋回すると推定</div></div>
         </div>
       </div>
     </div>
@@ -66,11 +63,21 @@
       <button data-zoom="-1">−</button>
       <button data-zoom="1">＋</button>
       <button id="map-up">進行方向↑</button>
+      <button id="map-follow" class="primary-small" hidden>◎ 現在地</button>
     </div>
   </section>
 
   <!-- ウェイポイント -->
   <section id="page-wp" class="page scroll">
+    <h2>スカイ獅子吼 配布データ</h2>
+    <p class="hint">座学で共有された Google ドライブ「Skyhang」のファイルがアプリに入っています。押すだけで読み込めます（電波なしでも OK）。</p>
+    <div class="row" id="school-list"></div>
+    <div class="row">
+      <button id="school-settings">スクール推奨設定にする</button>
+      <button id="school-update">ドライブから最新を取り込む</button>
+    </div>
+    <p class="hint"><a id="school-folder" target="_blank" rel="noopener">Google ドライブのフォルダを開く</a></p>
+
     <h2>ウェイポイント</h2>
     <div class="row">
       <button id="wp-add">現在地を登録</button>

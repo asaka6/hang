@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -51,9 +51,9 @@ const db = (() => {
 // ---------- 状態 ----------
 
 const DEFAULTS = {
-  pilot: '', glider: '', bestLD: 11, trimKmh: 38, margin: 100,
+  pilot: '', glider: '', bestLD: 7.5, trimKmh: 35, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
-  zoom: 4, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10, voice: 'on',
+  mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10, voice: 'on',
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 let waypoints = load('waypoints', []);
@@ -61,7 +61,6 @@ let goal = load('goal', null);
 let task = load('task', null); // XCTrack の .xctsk から読み込んだ大会タスク
 let prog = load('taskProg', null);
 
-const ZOOMS = [200, 400, 800, 1500, 3000, 6000, 12000, 25000, 50000]; // 画面幅 [m]
 
 const S = {
   running: false, demo: false,
@@ -72,6 +71,7 @@ const S = {
   circling: false, circleStart: null, thermals: [],
   lastThermal: null, lastGain: null, thermalEnd: 0,
   lowWarnT: 0, lowWarned: false, unlockUntil: 0,
+  fixAt: 0, prevFixAt: 0, viewUp: 0, follow: true, panCenter: null, panUp: 0,
   watchId: null, simTimer: null, wakeLock: null,
   lastSaved: 0, dirty: true,
 };
@@ -106,6 +106,7 @@ function onFix(f) {
     }
   }
   S.fixes.push(f);
+  S.prevFixAt = S.fixAt; S.fixAt = performance.now();
   f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
   detectFlight(f);
   detectThermal(f);
@@ -197,7 +198,9 @@ async function start(demo = false) {
   S.running = true;
   requestWakeLock();
   if (demo) {
-    const pos = last();
+    // デモは今いる場所、なければ読み込んだテイクオフ（獅子吼など）から飛ぶ
+    const to = waypoints.find((w) => w.kind === 'takeoff');
+    const pos = last() || (to && { lat: to.lat, lon: to.lon, alt: to.alt });
     resetFlight();
     const sim = createSim(pos ? { lat0: pos.lat, lon0: pos.lon, alt0: pos.alt ?? 600 } : {});
     S.simTimer = setInterval(() => onFix(sim.step(1)), 250); // 4 倍速
@@ -339,15 +342,6 @@ function render() {
   setUpDown('v-gain', gain);
 
   const hdg = gt && gt.hdg != null ? gt.hdg : null;
-  const rel = (b) => (settings.trackUp && hdg != null ? b - hdg : b);
-  if (S.wind) {
-    setText('v-wind', settings.windUnit === 'ms' ? fmt(S.wind.speed, 1) : fmt(S.wind.speed * 3.6));
-    // 矢印は風が吹いていく向き
-    $('#v-wind-arrow').style.transform = `rotate(${rel(S.wind.from + 180)}deg)`;
-    const age = Math.round((f.t - S.windT) / 60000);
-    setText('v-wind-sub', `${Math.round(S.wind.from)}°から ${age ? age + '分前' : '今'}`);
-  }
-
   // 目標は自動で選ぶ: タスクの次の TP → 設定したゴール → 一番近い着陸地
   const tg = currentTarget(f, a);
   if (tg) {
@@ -561,7 +555,55 @@ function varioColor(v) {
   return '#3060ff';
 }
 
-function drawMap(canvas, widthM, small) {
+// ---------- 滑らかに動く地図 ----------
+
+// GPS は 1 秒に 1 回なので、その間は速度と方位から今いる場所を予測して動かす
+function predicted() {
+  const f = last();
+  if (!f) return null;
+  const gt = C.groundTrack(S.fixes);
+  if (!gt || gt.spd < 1 || gt.hdg == null) return { lat: f.lat, lon: f.lon, hdg: gt && gt.hdg };
+  // デモは 4 倍速なので、GPS の時刻と実際の時間の比で進める
+  const prev = S.fixes[S.fixes.length - 2];
+  const rate = prev && S.fixAt > S.prevFixAt ? Math.max(0.5, Math.min(8, (f.t - prev.t) / (S.fixAt - S.prevFixAt))) : 1;
+  const dt = Math.min(2, (rate * (performance.now() - S.fixAt)) / 1000);
+  const r = (gt.hdg * Math.PI) / 180;
+  const p = C.fromXY(f.lat, f.lon, gt.spd * Math.sin(r) * dt, gt.spd * Math.cos(r) * dt);
+  return { lat: p.lat, lon: p.lon, hdg: gt.hdg };
+}
+
+// 地図の向き（進行方向アップ）も急に回らないよう少しずつ回す
+let lastFrameAt = performance.now();
+function smoothUp(target) {
+  const now = performance.now();
+  const k = Math.min(1, ((now - lastFrameAt) / 1000) * 3);
+  lastFrameAt = now;
+  if (target == null) return S.viewUp;
+  S.viewUp = C.norm360(S.viewUp + C.norm180(target - S.viewUp) * k);
+  return S.viewUp;
+}
+
+// Google マップのような青い現在地マーカー（向いている方向に光の扇）
+function drawMe(ctx, x, y, rotDeg) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (rotDeg != null) {
+    ctx.rotate((rotDeg * Math.PI) / 180);
+    const g = ctx.createRadialGradient(0, 0, 4, 0, 0, 52);
+    g.addColorStop(0, 'rgba(66,133,244,0.55)');
+    g.addColorStop(1, 'rgba(66,133,244,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 52, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+  }
+  ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 4;
+  ctx.beginPath(); ctx.arc(0, 0, 11, 0, Math.PI * 2); ctx.fillStyle = '#ffffff'; ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fillStyle = '#4285f4'; ctx.fill();
+  ctx.restore();
+}
+
+// view: { center, up, me } を省くと自機中心・自動
+function drawMap(canvas, widthM, small, view = {}) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
@@ -574,29 +616,30 @@ function drawMap(canvas, widthM, small) {
   const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
 
+  const me = predicted();
   // GPS が無い時はゴール・タスク・ウェイポイントの周りを表示（飛ぶ前の確認用）
-  const f = last() || mapCenter();
+  const f = view.center || me || mapCenter();
   if (!f) {
     ctx.fillStyle = fg; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('GPS 待ち…', w / 2, h / 2);
     return;
   }
-  const gt = last() ? C.groundTrack(S.fixes) : null;
-  const up = settings.trackUp && gt && gt.hdg != null ? gt.hdg : 0;
+  const up = view.up != null ? view.up : settings.trackUp ? smoothUp(me && me.hdg) : 0;
   const scale = w / widthM; // px / m
-  const cx = w / 2, cy = h * (settings.trackUp ? 0.62 : 0.5);
+  const cx = w / 2, cy = h * (settings.trackUp && !view.center ? 0.62 : 0.5);
   const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
   const P = (lat, lon) => {
     const p = C.toXY(f.lat, f.lon, lat, lon);
     const x = p.x * cos - p.y * sin, y = p.x * sin + p.y * cos;
     return [cx + x * scale, cy - y * scale];
   };
+  canvas._view = { f, up, scale, cx, cy }; // 指で動かす時に使う
 
   // 背景地図
   if (settings.mapLayer !== 'none') {
     T.drawTiles(ctx, settings.mapLayer, P, f, scale, Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), dpr);
-    // 地図の上で軌跡や文字が見えるように少し薄く（夜は暗く）する
-    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.3)';
+    // 軌跡や文字が見えるように少しだけ薄く（夜は暗く）する
+    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.12)';
     ctx.fillRect(0, 0, w, h);
   }
 
@@ -610,7 +653,7 @@ function drawMap(canvas, widthM, small) {
     if (!small) { ctx.fillStyle = '#e00000'; ctx.font = 'bold 13px sans-serif'; ctx.fillText(`+${t.climb.toFixed(1)}`, x + 10, y - 10); }
   }
 
-  // 軌跡（昇降で色分け）
+  // 軌跡（昇降で色分け）。最後は予測位置までつなぐ
   ctx.lineWidth = small ? 3 : 4; ctx.lineCap = 'round';
   const start = Math.max(1, S.fixes.length - (small ? 600 : 20000));
   let [px, py] = S.fixes.length ? P(S.fixes[start - 1].lat, S.fixes[start - 1].lon) : [0, 0];
@@ -620,6 +663,10 @@ function drawMap(canvas, widthM, small) {
     ctx.strokeStyle = varioColor(g.v);
     ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
     px = x; py = y;
+  }
+  if (me && S.fixes.length) {
+    const [x, y] = P(me.lat, me.lon);
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
   }
 
   // ウェイポイント
@@ -640,7 +687,11 @@ function drawMap(canvas, widthM, small) {
       ctx.fillStyle = wp.landing ? '#00a040' : css.getPropertyValue('--accent');
       ctx.fill(); ctx.stroke();
     }
-    if (!small || wp.landing || isGoal) { ctx.fillStyle = fg; ctx.fillText(wp.name, x + 10, y + 5); }
+    if (!small || wp.landing || isGoal) {
+      // 地図の上でも読めるよう白（夜は黒）で縁取り
+      ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 10, y + 5);
+      ctx.fillStyle = fg; ctx.fillText(wp.name, x + 10, y + 5);
+    }
   }
 
   // タスク: シリンダーと経路
@@ -669,23 +720,21 @@ function drawMap(canvas, widthM, small) {
     ctx.strokeRect(x - 6, y - 6, 12, 12);
   }
 
-  // 次の目標（タスクの次のターンポイント、なければゴール）への線
-  const target = task && prog && prog.idx < task.turnpoints.length ? task.turnpoints[prog.idx] : goal;
-  if (target && last()) {
-    const [x, y] = P(target.lat, target.lon);
+  // 目標への線
+  const fx = last();
+  const tg = fx && currentTarget(fx, alt(fx));
+  if (tg && me) {
+    const [mx, my] = P(me.lat, me.lon);
+    const [x, y] = P(tg.p.lat, tg.p.lon);
     ctx.setLineDash([8, 6]); ctx.strokeStyle = css.getPropertyValue('--accent'); ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(x, y); ctx.stroke();
     ctx.setLineDash([]);
   }
 
-  // 自機
-  if (last()) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate((((gt && gt.hdg != null ? gt.hdg : 0) - up) * Math.PI) / 180);
-  ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(14, 10); ctx.lineTo(0, 4); ctx.lineTo(-14, 10); ctx.closePath();
-  ctx.fillStyle = fg; ctx.fill();
-  ctx.restore();
+  // 現在地
+  if (me) {
+    const [x, y] = P(me.lat, me.lon);
+    drawMe(ctx, x, y, me.hdg != null ? me.hdg - up : null);
   }
 
   // 北マーク・風・縮尺
@@ -706,7 +755,9 @@ function drawMap(canvas, widthM, small) {
     ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(9, -6); ctx.lineTo(-9, -6); ctx.fill();
     ctx.restore();
     ctx.fillStyle = fg; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(settings.windUnit === 'ms' ? `${S.wind.speed.toFixed(1)}m/s` : `${Math.round(S.wind.speed * 3.6)}km/h`, w - 34, 72);
+    const txt = settings.windUnit === 'ms' ? `${S.wind.speed.toFixed(1)}m/s` : `${Math.round(S.wind.speed * 3.6)}km/h`;
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(txt, w - 34, 72);
+    ctx.fillText(txt, w - 34, 72);
   }
 
   const bar = niceScale(widthM / 4);
@@ -723,6 +774,12 @@ function drawMap(canvas, widthM, small) {
   if (!last()) {
     ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('GPS 待ち（地図の確認のみ）', w / 2, 24);
+  }
+
+  // 旋回中（と旋回をやめて 15 秒）は、地図の左上にサーマルアシストを小窓で出す
+  if (small && fx && (S.circling || fx.t - S.thermalEnd < 15000)) {
+    const size = Math.min(w * 0.55, h * 0.75, 260);
+    drawThermalInto(ctx, 6, 6, size, size);
   }
 }
 
@@ -775,27 +832,25 @@ $('#map-layer').addEventListener('click', () => {
 function autoMapWidth() {
   const f = last();
   const tg = f && currentTarget(f, alt(f));
-  if (!tg) return ZOOMS[Math.min(settings.zoom, 5)];
+  if (!tg) return 3000;
   return Math.max(1500, Math.min(15000, tg.dist * 2.6));
 }
 
 // サーマルアシスト: 直近 2 分の軌跡を昇降の強さで色と大きさを変えて描く。
 // 風で流された分を補正するので、サーマルのコア（一番上がる場所）が分かる。
-function drawThermal(canvas) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  if (!w || !h) return;
-  if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+function drawThermalInto(ctx, ox, oy, w, h) {
   const css = getComputedStyle(document.body);
   const fg = css.getPropertyValue('--fg');
-  ctx.fillStyle = css.getPropertyValue('--bg'); ctx.fillRect(0, 0, w, h);
+  ctx.save();
+  ctx.beginPath(); ctx.roundRect ? ctx.roundRect(ox, oy, w, h, 10) : ctx.rect(ox, oy, w, h);
+  ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.88)';
+  ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
+  ctx.clip();
   const f = last();
   const gt = C.groundTrack(S.fixes);
-  const up = settings.trackUp && gt && gt.hdg != null ? gt.hdg : 0;
+  const up = settings.trackUp ? S.viewUp : 0;
   const widthM = 300, scale = Math.min(w, h) / widthM;
-  const cx = w / 2, cy = h / 2;
+  const cx = ox + w / 2, cy = oy + h / 2;
   const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
   const wind = S.wind && S.wind.speed > 0.5 ? S.wind : null;
   const wx = wind ? wind.speed * Math.sin(((wind.from + 180) * Math.PI) / 180) : 0;
@@ -815,34 +870,22 @@ function drawThermal(canvas) {
     const v = p.v || 0;
     if (v > 0) { sx += x * v; sy += y * v; sw += v; }
     ctx.beginPath();
-    ctx.arc(x, y, 2 + Math.max(0, Math.min(5, v)) * 2.2, 0, Math.PI * 2);
+    ctx.arc(x, y, 2 + Math.max(0, Math.min(5, v)) * 1.8, 0, Math.PI * 2);
     ctx.fillStyle = varioColor(v); ctx.globalAlpha = 0.25 + 0.75 * ((p.t - pts[0].t) / Math.max(1, f.t - pts[0].t));
     ctx.fill();
   }
   ctx.globalAlpha = 1;
   if (sw > 0) {
-    ctx.beginPath(); ctx.arc(sx / sw, sy / sw, 14, 0, Math.PI * 2);
+    ctx.beginPath(); ctx.arc(sx / sw, sy / sw, 12, 0, Math.PI * 2);
     ctx.strokeStyle = '#e00000'; ctx.lineWidth = 3; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
   }
-  // 自機
-  ctx.save(); ctx.translate(cx, cy);
-  ctx.rotate((((gt && gt.hdg != null ? gt.hdg : 0) - up) * Math.PI) / 180);
-  ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(12, 9); ctx.lineTo(0, 3); ctx.lineTo(-12, 9); ctx.closePath();
-  ctx.fillStyle = fg; ctx.fill(); ctx.restore();
-  // 見出し・風・縮尺
-  ctx.fillStyle = fg; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'left';
-  ctx.fillText('サーマルアシスト', 8, 18);
-  if (wind) {
-    ctx.save(); ctx.translate(w - 30, 32); ctx.rotate(((wind.from + 180 - up) * Math.PI) / 180);
-    ctx.strokeStyle = fg; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(0, -8); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(8, -5); ctx.lineTo(-8, -5); ctx.fill();
-    ctx.restore();
-  }
-  const bar = 100;
-  ctx.strokeStyle = fg; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(10, h - 12); ctx.lineTo(10 + bar * scale, h - 12); ctx.stroke();
-  ctx.font = '13px sans-serif'; ctx.fillText('100 m', 10, h - 18);
+  drawMe(ctx, cx, cy, gt && gt.hdg != null ? gt.hdg - up : null);
+  ctx.fillStyle = fg; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('サーマル', ox + 6, oy + 16);
+  ctx.font = '11px sans-serif'; ctx.fillText('100 m', ox + 6, oy + h - 10);
+  ctx.lineWidth = 2; ctx.strokeStyle = fg;
+  ctx.beginPath(); ctx.moveTo(ox + 6, oy + h - 6); ctx.lineTo(ox + 6 + 100 * scale, oy + h - 6); ctx.stroke();
+  ctx.restore();
 }
 
 function niceScale(m) {
@@ -850,20 +893,78 @@ function niceScale(m) {
   return [1, 2, 5, 10].map((k) => k * p).filter((v) => v <= m).pop();
 }
 
-function frame() {
-  if (S.dirty) {
+// 地図ページの見え方（ピンチで拡大縮小、指で移動、「現在地」で戻る）
+function mapPageView() {
+  if (S.follow) return {};
+  return { center: S.panCenter, up: S.panUp };
+}
+
+let lastDraw = 0;
+function frame(now) {
+  // 飛行中・GPS 受信中は 1 秒に 20 回描き直して地図を滑らかに動かす
+  const moving = S.running && last() && now - lastDraw > 50;
+  if (S.dirty || moving) {
     S.dirty = false;
+    lastDraw = now;
     const page = document.querySelector('.page.active').id;
-    if (page === 'page-main') {
-      // 自動切替: 旋回中（と旋回をやめてから 15 秒）はサーマルアシスト、それ以外は地図
-      const f = last();
-      if (f && (S.circling || f.t - S.thermalEnd < 15000)) drawThermal($('#mini-map'));
-      else drawMap($('#mini-map'), autoMapWidth(), true);
-    }
-    if (page === 'page-map') drawMap($('#map'), ZOOMS[settings.zoom], false);
+    if (page === 'page-main') drawMap($('#mini-map'), autoMapWidth(), true);
+    if (page === 'page-map') drawMap($('#map'), settings.mapWidth, false, mapPageView());
   }
   requestAnimationFrame(frame);
 }
+
+// ---- 地図ページの指の操作 ----
+{
+  const cv = $('#map');
+  const ptrs = new Map();
+  let start = null;
+  const snapshot = () => {
+    const [a, b] = [...ptrs.values()];
+    return {
+      width: settings.mapWidth,
+      center: S.follow ? (cv._view && cv._view.f) : S.panCenter,
+      up: cv._view ? cv._view.up : 0,
+      mid: b ? [(a.x + b.x) / 2, (a.y + b.y) / 2] : [a.x, a.y],
+      dist: b ? Math.hypot(a.x - b.x, a.y - b.y) : 0,
+    };
+  };
+  cv.addEventListener('pointerdown', (e) => {
+    try { cv.setPointerCapture(e.pointerId); } catch { /* 指が離れた後など */ }
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    start = snapshot();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!ptrs.has(e.pointerId) || !start || !start.center) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const now = snapshot();
+    if (start.dist && now.dist) settings.mapWidth = Math.max(150, Math.min(100000, (start.width * start.dist) / now.dist));
+    const pxPerM = cv.clientWidth / settings.mapWidth;
+    const dx = (now.mid[0] - start.mid[0]) / pxPerM, dy = (now.mid[1] - start.mid[1]) / pxPerM;
+    if (Math.hypot(dx * pxPerM, dy * pxPerM) < 4 && !start.dist) return; // 少し触っただけ
+    // 画面の動きを地図の向きに合わせて東西南北に直す
+    const r = (start.up * Math.PI) / 180;
+    const ex = -(dx * Math.cos(r) + dy * Math.sin(r)), ny = -(dx * Math.sin(r) - dy * Math.cos(r));
+    const c = C.fromXY(start.center.lat, start.center.lon, ex, ny);
+    S.follow = false; S.panCenter = { lat: c.lat, lon: c.lon }; S.panUp = start.up;
+    $('#map-follow').hidden = false;
+    S.dirty = true;
+  });
+  const end = (e) => {
+    ptrs.delete(e.pointerId);
+    start = ptrs.size ? snapshot() : null;
+    save('settings', settings);
+  };
+  cv.addEventListener('pointerup', end);
+  cv.addEventListener('pointercancel', end);
+  cv.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    settings.mapWidth = Math.max(150, Math.min(100000, settings.mapWidth * (e.deltaY > 0 ? 1.15 : 1 / 1.15)));
+    S.dirty = true;
+  }, { passive: false });
+}
+$('#map-follow').addEventListener('click', () => {
+  S.follow = true; $('#map-follow').hidden = true; S.dirty = true;
+});
 
 // ---------- ウェイポイント ----------
 
@@ -969,9 +1070,9 @@ $('#wp-file').addEventListener('change', async (e) => {
   renderWaypoints(); renderSettings(); S.dirty = true; render();
 });
 
-function importFile({ kind, data }, name) {
+function importFile({ kind, data }, name, quiet = false) {
   if (kind === 'waypoints') {
-    const replace = waypoints.length && confirm(`${name}\n${data.length} 件のウェイポイントを読み込みました。\n既存のウェイポイントを置き換えますか？（キャンセル = 追加）`);
+    const replace = !quiet && waypoints.length && confirm(`${name}\n${data.length} 件のウェイポイントを読み込みました。\n既存のウェイポイントを置き換えますか？（キャンセル = 追加）`);
     // 同じ地点の重複は追加しない
     const key = (w) => `${w.lat.toFixed(5)},${w.lon.toFixed(5)}`;
     const have = new Set((replace ? [] : waypoints).map(key));
@@ -979,7 +1080,7 @@ function importFile({ kind, data }, name) {
     save('waypoints', waypoints);
   } else if (kind === 'task') {
     setTask(data);
-    alert(`タスクを読み込みました（${data.turnpoints.length} ポイント）。\n計器画面に次のターンポイントが表示されます。`);
+    if (!quiet) alert(`タスクを読み込みました（${data.turnpoints.length} ポイント）。\n計器画面に次のターンポイントが表示されます。`);
   } else if (kind === 'settings') {
     const lines = [];
     const s = data.settings;
@@ -1004,6 +1105,61 @@ function importFile({ kind, data }, name) {
       '\n\n※ 画面レイアウト・バリオ音・空域の設定は XCTrack 専用のため取り込みません。');
   }
 }
+
+// ---------- スカイ獅子吼 配布データ（Google ドライブ「Skyhang」） ----------
+// アプリに同じものを入れてあるので電波が無くても使える。「最新を取り込む」でドライブから取り直す。
+const DRIVE_FOLDER = 'https://drive.google.com/drive/folders/1lLYPa8oH_ZAuEPT2EEqjIO94Hn5JmC0P';
+const SCHOOL = [
+  { name: '獅子吼 ウェイポイント', file: 'SHISHIKU_20260501.wpt', drive: '1Xvu_-27Ef2Ev0tuZyoJYFDXo3lr-mMbZ' },
+  { name: 'つくばね（砺波）ウェイポイント', file: '2025Tonami_waypoint.wpt', drive: '1yYwu-D8g2hvERS7ymrEWgtTigOZ_SdIv' },
+  { name: '獅子吼 タスク 2026-05-05', file: 'task_2026-05-05_1.xctsk', drive: '1S3FqmvZDs3VGoLBid0dOFCTrGR73HhAL' },
+];
+const driveUrl = (id) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
+
+async function loadSchool(item, fromDrive) {
+  let text = null;
+  if (fromDrive) {
+    try {
+      const res = await fetch(driveUrl(item.drive), { cache: 'no-store' });
+      if (res.ok) text = await res.text();
+    } catch { /* 電波なし → アプリ内のものを使う */ }
+  }
+  if (text == null) text = await (await fetch(`presets/${item.file}`)).text();
+  importFile(C.readAnyFile(text, item.file), item.file, true);
+}
+
+function renderSchool() {
+  const box = $('#school-list');
+  box.innerHTML = '';
+  for (const item of SCHOOL) {
+    const b = document.createElement('button');
+    b.textContent = item.name;
+    b.addEventListener('click', async () => {
+      await loadSchool(item, false);
+      renderWaypoints(); S.dirty = true; render();
+      alert(`${item.name} を読み込みました`);
+    });
+    box.appendChild(b);
+  }
+}
+
+$('#school-settings').addEventListener('click', () => {
+  if (!confirm('スクール推奨の設定にしますか？\n\nゴール滑空比 (L/D) 7.5・トリム速度 35 km/h・風速 m/s\n（座学で配布された XCTrack 設定と同じ値）')) return;
+  Object.assign(settings, { bestLD: 7.5, trimKmh: 35, windUnit: 'ms' });
+  save('settings', settings); renderSettings(); render();
+});
+$('#school-update').addEventListener('click', async () => {
+  const btn = $('#school-update');
+  btn.disabled = true; btn.textContent = '取り込み中…';
+  let ok = 0;
+  for (const item of SCHOOL) {
+    try { await loadSchool(item, true); ok++; } catch (e) { alert(`${item.name}: ${e.message}`); }
+  }
+  btn.disabled = false; btn.textContent = 'ドライブから最新を取り込む';
+  renderWaypoints(); S.dirty = true; render();
+  alert(`${ok} 件取り込みました（ウェイポイントは重複しないよう追加、タスクは最新に置き換え）`);
+});
+$('#school-folder').href = DRIVE_FOLDER;
 
 $('#wp-goal-clear').addEventListener('click', () => { goal = null; save('goal', null); renderWaypoints(); render(); });
 $('#wp-clear').addEventListener('click', () => {
@@ -1061,7 +1217,6 @@ function renderSettings() {
   $('#map-layer').textContent = settings.mapLayer === 'none' ? '地図なし' : T.LAYERS[settings.mapLayer].name.replace('地理院 ', '').replace('（等高線）', '');
   for (const el of form.elements) if (el.name && el.name in settings) el.value = settings[el.name];
   setText('alt-offset', signed(settings.altOffset, 0));
-  setText('wind-unit', settings.windUnit === 'ms' ? 'm/s' : 'km/h');
   document.body.dataset.theme = settings.theme;
   $('#map-up').textContent = settings.trackUp ? '進行方向↑' : '北↑';
 }
@@ -1097,7 +1252,8 @@ function showPage(name) {
 }
 $$('#tabs button').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
 $$('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
-  settings.zoom = Math.max(0, Math.min(ZOOMS.length - 1, settings.zoom - Number(b.dataset.zoom)));
+  const k = Number(b.dataset.zoom) > 0 ? 1 / 1.6 : 1.6;
+  settings.mapWidth = Math.max(150, Math.min(100000, settings.mapWidth * k));
   save('settings', settings); S.dirty = true;
 }));
 $('#map-up').addEventListener('click', () => {
@@ -1121,6 +1277,10 @@ $('#start-demo').addEventListener('click', () => { unlockAudio(); start(true); }
 if (window.navigator.standalone) $('#install-hint').hidden = true;
 setText('version', `HG 計器 v${VERSION}`);
 renderSettings();
+renderSchool();
+if (load('waypoints', null) == null) {
+  loadSchool(SCHOOL[0], false).then(() => { S.dirty = true; }).catch(() => {});
+}
 tickClock();
 setInterval(tickClock, 10000);
 requestAnimationFrame(frame);
