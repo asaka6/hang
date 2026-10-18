@@ -30,7 +30,7 @@
     <div class="fl">
       <div class="fl-target">
         <div class="cell tp">
-          <span class="arrow big-arrow" id="v-goal-arrow">↑</span>
+          <canvas id="compass"></canvas>
           <div class="label" id="v-goal-name">目標なし</div>
         </div>
         <div class="cell"><div class="label">到着高度 <small>m</small></div><div class="value" id="v-goal-arr">--</div></div>
@@ -43,7 +43,7 @@
         <div class="fl-grid">
           <div class="cell big"><div class="label">高度 <small>m</small></div><div class="value" id="v-alt">----</div></div>
           <div class="cell"><div class="label"><span id="agl-label">対地高度</span> <small>m</small></div><div class="value" id="v-agl">--</div></div>
-          <div class="cell"><div class="label">速度 <small>km/h</small></div><div class="value" id="v-spd">--</div></div>
+          <div class="cell"><div class="label">速度 <small>km/h</small></div><div class="value" id="v-spd">--</div><div class="sub" id="v-windtxt"></div></div>
           <div class="cell"><div class="label">上昇 <small>m/s</small></div><div class="value" id="v-vario">--</div></div>
           <div class="cell"><div class="label">ゲイン <small>m</small></div><div class="value" id="v-gain">--</div><div class="sub">平均 <b id="v-thermal">--</b></div></div>
           <div class="cell"><div class="label">滑空比</div><div class="value" id="v-ld">--</div></div>

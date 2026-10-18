@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -342,6 +342,10 @@ function render() {
   setUpDown('v-gain', gain);
 
   const hdg = gt && gt.hdg != null ? gt.hdg : null;
+  // 上の目標セルのコンパス（地図に重ねない）と、速度の下の風
+  drawCompassCell();
+  setText('v-windtxt', S.wind ? `風 ${settings.windUnit === 'ms' ? S.wind.speed.toFixed(1) + ' m/s' : Math.round(S.wind.speed * 3.6) + ' km/h'}` : '');
+
   // 目標は自動で選ぶ: タスクの次の TP → 設定したゴール → 一番近い着陸地
   const tg = currentTarget(f, a);
   if (tg) {
@@ -350,7 +354,6 @@ function render() {
     setText('v-goal-arr', fmt(tg.arrival));
     setUpDown('v-goal-arr', tg.arrival - settings.margin);
     setText('v-goal-ld', tg.reqLD > 99 ? '>99' : fmt(tg.reqLD, 1));
-    $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? tg.brg - hdg : tg.brg}deg)`;
     setText('v-goal-sub', tg.sub);
     lowAltitudeWarning(f, tg);
   } else {
@@ -612,7 +615,22 @@ function headingNow(gpsHdg) {
 
 // コンパス: 方位の目盛り（地図と同じ向き）、上の ▼ が今の方向、
 // 青い矢印が目標の方向、灰色の矢印が風の吹いていく方向
-function drawCompass(ctx, cx, cy, r, up, gpsHdg, targetBrg) {
+function drawCompassCell() {
+  const c = $('#compass');
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const me = predicted();
+  const f = last();
+  const tg = f && currentTarget(f, alt(f));
+  const up = settings.trackUp ? S.viewUp : 0;
+  drawCompass(ctx, w / 2, h / 2, Math.min(w, h) / 2 - 3, up, me && me.hdg, tg && me ? C.bearing(me.lat, me.lon, tg.p.lat, tg.p.lon) : null, { bgAlpha: 0, sub: false });
+}
+
+function drawCompass(ctx, cx, cy, r, up, gpsHdg, targetBrg, opt = {}) {
   const css = getComputedStyle(document.body);
   const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
   const { hdg, src } = headingNow(gpsHdg);
@@ -622,16 +640,19 @@ function drawCompass(ctx, cx, cy, r, up, gpsHdg, targetBrg) {
   };
   ctx.save();
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.88)';
+  const a = opt.bgAlpha ?? 0.55;
+  ctx.fillStyle = settings.theme === 'night' ? `rgba(0,0,0,${a})` : `rgba(255,255,255,${a})`;
   ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
   // 目盛り
-  for (let d = 0; d < 360; d += 10) {
-    const [x1, y1] = at(d, r - 2), [x2, y2] = at(d, r - (d % 30 ? 6 : 11));
+  const tiny = r < 30;
+  for (let d = 0; d < 360; d += tiny ? 30 : 10) {
+    const [x1, y1] = at(d, r - 2), [x2, y2] = at(d, r - (d % 30 ? 6 : tiny ? 5 : 11));
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
     ctx.strokeStyle = fg; ctx.lineWidth = d % 90 ? 1 : 2; ctx.stroke();
   }
   ctx.font = `bold ${Math.round(r * 0.28)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const [d, t] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
+  ctx.font = `bold ${Math.round(tiny ? 11 : r * 0.28)}px sans-serif`;
+  for (const [d, t] of tiny ? [[0, 'N']] : [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
     const [x, y] = at(d, r * 0.58);
     ctx.fillStyle = d === 0 ? '#e00000' : fg; ctx.fillText(t, x, y);
   }
@@ -653,15 +674,18 @@ function drawCompass(ctx, cx, cy, r, up, gpsHdg, targetBrg) {
   }
   // 今の方向（外側の ▼）と数字
   if (hdg != null) {
-    const [px, py] = at(hdg, r - 2), [lx, ly] = at(hdg - 10, r - 16), [rx, ry] = at(hdg + 10, r - 16);
+    const m = tiny ? 9 : 16;
+    const [px, py] = at(hdg, r - 2), [lx, ly] = at(hdg - 12, r - m), [rx, ry] = at(hdg + 12, r - m);
     ctx.fillStyle = '#ff8000'; ctx.strokeStyle = bg; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(lx, ly); ctx.lineTo(rx, ry); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
+  if (tiny) { ctx.restore(); return; }
   ctx.font = `bold ${Math.round(r * 0.3)}px sans-serif`;
   ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.fillStyle = fg;
   const label = hdg != null ? `${String(Math.round(C.norm360(hdg)) % 360).padStart(3, '0')}°` : '---';
   ctx.strokeText(label, cx, cy); ctx.fillText(label, cx, cy);
-  ctx.font = `${Math.round(r * 0.2)}px sans-serif`;
+  if (opt.sub === false) { ctx.restore(); return; }
+  ctx.font = `${Math.round(Math.max(11, r * 0.2))}px sans-serif`;
   const sub = S.wind ? (settings.windUnit === 'ms' ? `風 ${S.wind.speed.toFixed(1)}m/s` : `風 ${Math.round(S.wind.speed * 3.6)}km/h`) : src;
   ctx.strokeText(sub, cx, cy + r + 12); ctx.fillText(sub, cx, cy + r + 12);
   ctx.restore();
@@ -802,10 +826,10 @@ function drawMap(canvas, widthM, small, view = {}) {
     drawMe(ctx, x, y, me.hdg != null ? me.hdg - up : null);
   }
 
-  // コンパス（右上）
-  {
-    const r = Math.max(42, Math.min(70, Math.min(w, h) * 0.17));
-    drawCompass(ctx, w - r - 8, r + 8, r, up, me && me.hdg, tg && me ? C.bearing(me.lat, me.lon, tg.p.lat, tg.p.lon) : null);
+  // 地図タブだけ右上に小さく透けるコンパス（飛行画面は上の目標欄にある）
+  if (!small) {
+    const r = 36;
+    drawCompass(ctx, w - r - 8, r + 8, r, up, me && me.hdg, tg && me ? C.bearing(me.lat, me.lon, tg.p.lat, tg.p.lon) : null, { bgAlpha: 0.35 });
   }
 
   const bar = niceScale(widthM / 4);
@@ -827,7 +851,8 @@ function drawMap(canvas, widthM, small, view = {}) {
 
   // 旋回中（と旋回をやめて 15 秒）は、地図の左上にサーマルアシストを小窓で出す
   if (small && fx && (S.circling || fx.t - S.thermalEnd < 15000)) {
-    const size = Math.min(w * 0.55, h * 0.75, 260);
+    // 自分の位置（下寄りの真ん中）や目標を隠さないよう、左上に小さく
+    const size = Math.min(w * 0.38, h * 0.45, 170);
     drawThermalInto(ctx, 6, 6, size, size);
   }
 }
@@ -892,7 +917,7 @@ function drawThermalInto(ctx, ox, oy, w, h) {
   const fg = css.getPropertyValue('--fg');
   ctx.save();
   ctx.beginPath(); ctx.roundRect ? ctx.roundRect(ox, oy, w, h, 10) : ctx.rect(ox, oy, w, h);
-  ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.88)';
+  ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.5)';
   ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
   ctx.clip();
   const f = last();
