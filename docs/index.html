@@ -17,6 +17,7 @@
 <body data-theme="day">
 
 <header id="status">
+  <div id="lock-hint">飛行中ロック中 ・ ここを長押しで解除</div>
   <span id="gps" class="badge bad">GPS --</span>
   <span id="rec" class="badge">待機</span>
   <span id="ftime">0:00</span>
@@ -26,39 +27,30 @@
 <main>
   <!-- 計器 -->
   <section id="page-main" class="page active">
-    <div class="grid">
-      <div class="tile span2 big">
-        <div class="label">高度 <small>m</small></div>
-        <div class="value" id="v-alt">----</div>
-        <div class="sub">離陸比 <b id="v-agl">--</b> m</div>
-      </div>
-      <div class="tile">
-        <div class="label">対地速度 <small>km/h</small></div>
-        <div class="value" id="v-spd">--</div>
-      </div>
-      <div class="tile">
-        <div class="label">GPSバリオ <small>m/s</small></div>
-        <div class="value" id="v-vario">--</div>
-      </div>
-      <div class="tile">
-        <div class="label">風 <small id="wind-unit">m/s</small></div>
-        <div class="value wind"><span class="arrow" id="v-wind-arrow">↑</span><span id="v-wind">--</span></div>
-        <div class="sub" id="v-wind-sub">旋回すると推定</div>
-      </div>
-      <div class="tile">
-        <div class="label">L/D</div>
-        <div class="value" id="v-ld">--</div>
-        <div class="sub">サーマル <b id="v-thermal">--</b> m/s</div>
-      </div>
-      <div class="tile span2" id="goal-tile">
-        <div class="label"><span id="v-goal-name">ゴール 未設定</span></div>
-        <div class="goalrow">
+    <div class="fl">
+      <div class="fl-target">
+        <div class="cell tp">
           <span class="arrow big-arrow" id="v-goal-arrow">↑</span>
-          <div><div class="value" id="v-goal-dist">--</div><div class="sub">km</div></div>
-          <div><div class="value" id="v-goal-arr">--</div><div class="sub">到着高度 m</div></div>
-          <div><div class="value small" id="v-goal-ld">--</div><div class="sub">必要L/D</div></div>
+          <div class="label" id="v-goal-name">目標なし</div>
         </div>
-        <div class="sub" id="v-goal-sub"></div>
+        <div class="cell"><div class="label">到着高度 <small>m</small></div><div class="value" id="v-goal-arr">--</div></div>
+        <div class="cell"><div class="label">距離 <small>km</small></div><div class="value" id="v-goal-dist">--</div></div>
+        <div class="cell"><div class="label">必要L/D</div><div class="value" id="v-goal-ld">--</div></div>
+      </div>
+      <div class="sub fl-sub" id="v-goal-sub"></div>
+      <div class="fl-body">
+        <canvas id="vario-col"></canvas>
+        <div class="fl-grid">
+          <div class="cell span2 big"><div class="label">高度 <small>m</small></div><div class="value" id="v-alt">----</div></div>
+          <div class="cell"><div class="label"><span id="agl-label">対地高度</span> <small>m</small></div><div class="value" id="v-agl">--</div></div>
+          <div class="cell"><div class="label">速度 <small>km/h</small></div><div class="value" id="v-spd">--</div></div>
+          <div class="cell"><div class="label">上昇 <small>m/s</small></div><div class="value" id="v-vario">--</div></div>
+          <div class="cell"><div class="label">サーマルゲイン <small>m</small></div><div class="value" id="v-gain">--</div><div class="sub">平均 <b id="v-thermal">--</b> m/s</div></div>
+          <div class="cell"><div class="label">滑空比</div><div class="value" id="v-ld">--</div></div>
+          <div class="cell"><div class="label">風 <small id="wind-unit">m/s</small></div>
+            <div class="value wind"><span class="arrow" id="v-wind-arrow">↑</span><span id="v-wind">--</span></div>
+            <div class="sub" id="v-wind-sub">旋回すると推定</div></div>
+        </div>
       </div>
     </div>
     <canvas id="mini-map"></canvas>
@@ -159,6 +151,9 @@
         <label>テーマ
           <select name="theme"><option value="day">昼（白背景・日差し向け）</option><option value="night">夜（黒背景）</option></select>
         </label>
+        <label>音声案内
+          <select name="voice"><option value="on">あり（スタート・TP・ゴール・高度不足など）</option><option value="off">なし</option></select>
+        </label>
         <label>風速の単位
           <select name="windUnit"><option value="ms">m/s</option><option value="kmh">km/h</option></select>
         </label>
@@ -187,6 +182,15 @@
   <button data-page="log">ログ</button>
   <button data-page="set">設定</button>
 </nav>
+
+<div id="landed" class="overlay hidden">
+  <div class="card">
+    <h1>おつかれさまでした</h1>
+    <ul class="summary" id="landed-list"></ul>
+    <button id="landed-igc" class="primary">IGC を書き出す（XContest へ）</button>
+    <button id="landed-close">閉じる</button>
+  </div>
+</div>
 
 <div id="start" class="overlay">
   <div class="card">

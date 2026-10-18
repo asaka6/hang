@@ -1,8 +1,9 @@
 import * as C from './calc.js';
 import { createSim } from './sim.js';
 import * as T from './tiles.js';
+import * as G from './terrain.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -52,7 +53,7 @@ const db = (() => {
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 11, trimKmh: 38, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
-  zoom: 4, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10,
+  zoom: 4, trackUp: true, windUnit: 'ms', mapLayer: 'gsi-std', saveRadiusKm: 10, voice: 'on',
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 let waypoints = load('waypoints', []);
@@ -69,7 +70,8 @@ const S = {
   fastCount: 0, slowSince: null,
   wind: null, windT: 0,
   circling: false, circleStart: null, thermals: [],
-  lastThermal: null,
+  lastThermal: null, lastGain: null, thermalEnd: 0,
+  lowWarnT: 0, lowWarned: false, unlockUntil: 0,
   watchId: null, simTimer: null, wakeLock: null,
   lastSaved: 0, dirty: true,
 };
@@ -107,11 +109,21 @@ function onFix(f) {
   f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
   detectFlight(f);
   detectThermal(f);
+  if (task && prog && prog.startT == null && !S.gateSpoken) {
+    const gates = C.startGates(task, f.t);
+    if (gates.length && f.t >= gates[0] && f.t - gates[0] < 120000) { S.gateSpoken = true; speak('スタートが開きました'); }
+  }
   if (task && prog) {
     const np = C.taskStep(task, prog, prev, f);
     if (np !== prog) {
-      if (np.idx !== prog.idx) beep(np.idx >= task.turnpoints.length ? 3 : 2);
-      else if (np.startT !== prog.startT) beep(1);
+      if (np.idx !== prog.idx) {
+        beep(np.idx >= task.turnpoints.length ? 3 : 2);
+        const passed = task.turnpoints[np.idx - 1];
+        const next = task.turnpoints[np.idx];
+        if (np.idx >= task.turnpoints.length) speak('ゴールしました');
+        else if (passed.type === 'SSS') speak(`スタートしました。次は ${next.name}`);
+        else speak(`${passed.type === 'ESS' ? 'イーエスエス' : 'ターンポイント'} 通過。次は ${next.name}`);
+      } else if (np.startT !== prog.startT) { beep(1); speak('スタートを切り直しました'); }
       prog = np;
       save('taskProg', prog);
     }
@@ -137,6 +149,7 @@ function detectFlight(f) {
       S.flightStart = w[0].t;
       S.takeoff = { lat: w[0].lat, lon: w[0].lon, alt: w[0].alt };
       S.flightEnd = null;
+      onTakeoff();
     }
     return;
   }
@@ -147,6 +160,7 @@ function detectFlight(f) {
     if (f.t - S.slowSince > 60000) {
       S.flightEnd = S.slowSince;
       if (!S.demo) saveLog();
+      onLanding();
     }
   } else {
     S.slowSince = null;
@@ -160,6 +174,7 @@ function detectThermal(f) {
     S.circleStart = f;
   } else if (S.circling && tr < 4) {
     S.circling = false;
+    S.thermalEnd = f.t;
     const dt = (f.t - S.circleStart.t) / 1000;
     const climb = dt > 0 ? (f.alt - S.circleStart.alt) / dt : 0;
     if (dt > 20 && climb > 0.2) {
@@ -169,6 +184,7 @@ function detectThermal(f) {
       S.thermals.push({ lat: best.lat, lon: best.lon, climb });
       if (S.thermals.length > 30) S.thermals.shift();
       S.lastThermal = climb;
+      S.lastGain = f.alt - S.circleStart.alt;
     }
   }
 }
@@ -188,6 +204,7 @@ async function start(demo = false) {
     return;
   }
   await resumeCurrent();
+  if (isFlying()) lockScreen(true); // 途中で再起動した時もそのまま飛行画面に
   if (!('geolocation' in navigator)) { alert('この端末では位置情報が使えません'); return; }
   S.watchId = navigator.geolocation.watchPosition(onPosition, (e) => {
     updateGpsBadge(null, e.code === 1 ? '許可なし' : 'エラー');
@@ -205,6 +222,7 @@ async function stop() {
   }
   if (!S.demo) await db.del('kv', 'current').catch(() => {});
   S.running = false;
+  lockScreen(false);
   releaseWakeLock();
   resetFlight();
   $('#start').classList.remove('hidden');
@@ -214,7 +232,8 @@ function resetFlight() {
   Object.assign(S, {
     fixes: [], flightStart: null, flightEnd: null, takeoff: null,
     fastCount: 0, slowSince: null, wind: null, windT: 0,
-    circling: false, circleStart: null, thermals: [], lastThermal: null, dirty: true,
+    circling: false, circleStart: null, thermals: [], lastThermal: null, lastGain: null, thermalEnd: 0,
+    lowWarnT: 0, lowWarned: false, gateSpoken: false, dirty: true,
   });
 }
 
@@ -299,16 +318,25 @@ function render() {
   const ld = C.glideRatio(S.fixes, settings.ldWindow);
 
   setText('v-alt', fmt(a));
-  setText('v-agl', S.takeoff ? signed(f.alt - S.takeoff.alt, 0) : '--');
+  // 対地高度（国土地理院の標高データ）。取れない場所は離陸地点からの高さ
+  const ground = G.elevation(f.lat, f.lon, () => { render(); });
+  if (ground != null) { setText('agl-label', '対地高度'); setText('v-agl', fmt(a - ground)); }
+  else { setText('agl-label', '離陸比'); setText('v-agl', S.takeoff ? signed(f.alt - S.takeoff.alt, 0) : '--'); }
   setText('v-spd', fmt(gt && gt.spd * 3.6));
   setText('v-vario', signed(vs));
   setUpDown('v-vario', vs);
   setText('v-ld', ld === Infinity ? '∞' : fmt(ld, ld != null && ld < 10 ? 1 : 0));
+  drawVarioColumn(C.verticalSpeed(S.fixes, 3));
 
-  const thermal = S.circling && S.circleStart
+  // サーマルゲイン（今のサーマルで稼いだ高度）と平均上昇率
+  const inThermal = S.circling && S.circleStart;
+  const thermal = inThermal
     ? (f.alt - S.circleStart.alt) / Math.max(1, (f.t - S.circleStart.t) / 1000)
     : S.lastThermal;
   setText('v-thermal', signed(thermal));
+  const gain = inThermal ? f.alt - S.circleStart.alt : S.lastGain;
+  setText('v-gain', gain == null ? '--' : signed(gain, 0));
+  setUpDown('v-gain', gain);
 
   const hdg = gt && gt.hdg != null ? gt.hdg : null;
   const rel = (b) => (settings.trackUp && hdg != null ? b - hdg : b);
@@ -320,29 +348,21 @@ function render() {
     setText('v-wind-sub', `${Math.round(S.wind.from)}°から ${age ? age + '分前' : '今'}`);
   }
 
-  const ti = task && prog ? C.taskInfo(task, prog, f, a, settings, S.wind) : null;
-  if (ti) {
-    const n = task.turnpoints.length;
-    const tpType = ti.tp.type === 'SSS' ? 'スタート' : ti.tp.type === 'ESS' && prog.idx === n - 1 ? 'ゴール' : ti.tp.type === 'ESS' ? 'ESS' : prog.idx === n - 1 ? 'ゴール' : 'TP';
-    setText('v-goal-name', `タスク ${prog.idx + 1}/${n} ${tpType} ${ti.tp.name} (${ti.tp.radius}m)`);
-    setText('v-goal-dist', fmt(ti.toEdge / 1000, ti.toEdge < 10000 ? 1 : 0));
-    setText('v-goal-arr', fmt(ti.arrival));
-    setUpDown('v-goal-arr', ti.arrival - settings.margin);
-    setText('v-goal-ld', ti.reqLD > 99 ? '>99' : fmt(ti.reqLD, 1));
-    $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? ti.brg - hdg : ti.brg}deg)`;
-    setText('v-goal-sub', taskStatus(f.t, ti));
-  } else if (goal) {
-    const g = C.goalInfo(f, a, goal, settings, S.wind);
-    setText('v-goal-sub', '');
-    setText('v-goal-name', `ゴール ${goal.name}`);
-    setText('v-goal-dist', fmt(g.dist / 1000, g.dist < 10000 ? 1 : 0));
-    setText('v-goal-arr', fmt(g.arrival));
-    setUpDown('v-goal-arr', g.arrival - settings.margin);
-    setText('v-goal-ld', g.reqLD > 99 ? '>99' : fmt(g.reqLD, 1));
-    $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? g.brg - hdg : g.brg}deg)`;
+  // 目標は自動で選ぶ: タスクの次の TP → 設定したゴール → 一番近い着陸地
+  const tg = currentTarget(f, a);
+  if (tg) {
+    setText('v-goal-name', tg.label);
+    setText('v-goal-dist', fmt(tg.dist / 1000, tg.dist < 10000 ? 1 : 0));
+    setText('v-goal-arr', fmt(tg.arrival));
+    setUpDown('v-goal-arr', tg.arrival - settings.margin);
+    setText('v-goal-ld', tg.reqLD > 99 ? '>99' : fmt(tg.reqLD, 1));
+    $('#v-goal-arrow').style.transform = `rotate(${hdg != null ? tg.brg - hdg : tg.brg}deg)`;
+    setText('v-goal-sub', tg.sub);
+    lowAltitudeWarning(f, tg);
   } else {
-    setText('v-goal-name', task && prog ? 'タスク完了' : 'ゴール 未設定（WPタブで設定）');
-    setText('v-goal-sub', task && prog && prog.goalT ? `ゴール ${clock(prog.goalT)}` : '');
+    setText('v-goal-name', task && prog ? 'タスク完了' : '目標なし');
+    for (const id of ['v-goal-dist', 'v-goal-arr', 'v-goal-ld']) setText(id, '--');
+    setText('v-goal-sub', task && prog && prog.goalT ? `ゴール ${clock(prog.goalT)}` : 'WP タブで着陸地を読み込むと自動で案内します');
   }
 
   // ステータスバー
@@ -384,6 +404,147 @@ function beep(n = 1) {
     o.start(t0); o.stop(t0 + 0.15);
   }
 }
+
+function currentTarget(f, a) {
+  const ti = task && prog ? C.taskInfo(task, prog, f, a, settings, S.wind) : null;
+  if (ti) {
+    const n = task.turnpoints.length;
+    const kind = ti.tp.type === 'SSS' ? 'スタート' : prog.idx === n - 1 ? 'ゴール' : ti.tp.type === 'ESS' ? 'ESS' : 'TP';
+    return {
+      label: `${kind} ${prog.idx + 1}/${n} ${ti.tp.name}`, p: ti.tp, dist: ti.toEdge, brg: ti.brg,
+      arrival: ti.arrival, reqLD: ti.reqLD, sub: taskStatus(f.t, ti), landing: false,
+    };
+  }
+  let wp = goal, label = goal && `ゴール ${goal.name}`;
+  if (!wp) {
+    // 一番近い着陸地
+    let best = Infinity;
+    for (const w of waypoints) {
+      if (!w.landing) continue;
+      const d = C.distance(f.lat, f.lon, w.lat, w.lon);
+      if (d < best) { best = d; wp = w; }
+    }
+    label = wp && `最寄りLD ${wp.name}`;
+  }
+  if (!wp) return null;
+  const g = C.goalInfo(f, a, wp, settings, S.wind);
+  return { label, p: wp, dist: g.dist, brg: g.brg, arrival: g.arrival, reqLD: g.reqLD, sub: '', landing: wp.landing || !!goal };
+}
+
+// 着陸地への到着高度がマージンを下回ったら声で知らせる（1 分に 1 回まで）
+function lowAltitudeWarning(f, tg) {
+  // ランディングへの進入中（800m 以内）は高度が下がるのが当然なので知らせない
+  if (S.flightStart == null || S.flightEnd != null || !tg.landing || tg.dist < 800) return;
+  const low = tg.arrival < settings.margin;
+  if (low && !S.lowWarned && f.t - S.lowWarnT > 60000) {
+    S.lowWarned = true; S.lowWarnT = f.t;
+    speak(tg.arrival < 0 ? `${tg.p.name} に届きません` : `${tg.p.name} まで高度に余裕がありません`);
+  }
+  if (!low && tg.arrival > settings.margin + 50) S.lowWarned = false;
+}
+
+// XCTrack のバリオカラム: 上昇は上へ緑、沈下は下へ赤
+function drawVarioColumn(v) {
+  const c = $('#vario-col');
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  if (c.width !== w * dpr || c.height !== h * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const css = getComputedStyle(document.body);
+  ctx.fillStyle = css.getPropertyValue('--tile'); ctx.fillRect(0, 0, w, h);
+  const mid = h / 2, k = (h / 2) / 5; // ±5 m/s
+  ctx.strokeStyle = css.getPropertyValue('--muted'); ctx.lineWidth = 1;
+  for (let i = -4; i <= 4; i++) { ctx.beginPath(); ctx.moveTo(i ? w * 0.6 : 0, mid - i * k); ctx.lineTo(w, mid - i * k); ctx.stroke(); }
+  if (v == null) return;
+  const vv = Math.max(-5, Math.min(5, v));
+  ctx.fillStyle = vv >= 0 ? css.getPropertyValue('--up') : css.getPropertyValue('--down');
+  ctx.fillRect(4, Math.min(mid, mid - vv * k), w - 8, Math.abs(vv * k));
+}
+
+// ---------- 音声案内 ----------
+
+function speak(text) {
+  if (window.__hang) window.__hang.spoken.push(text);
+  if (settings.voice === 'off' || !('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ja-JP'; u.rate = 1.05;
+    speechSynthesis.speak(u);
+  } catch { /* 音声なし */ }
+}
+
+// ---------- 離陸・着陸の自動動作 ----------
+
+function onTakeoff() {
+  speak(S.demo ? 'デモ飛行。テイクオフしました' : 'テイクオフ。記録を開始しました');
+  showPage('main');
+  lockScreen(true);
+}
+
+function onLanding() {
+  speak(S.demo ? '着陸しました' : '着陸しました。記録を保存しました');
+  lockScreen(false);
+  showLandedSummary();
+}
+
+// 飛行中は画面をロックして、ハーネスや手袋が当たっても何も変わらないようにする
+function lockScreen(on) {
+  document.body.classList.toggle('locked', on);
+  if (on) showPage('main');
+}
+
+function isFlying() { return S.flightStart != null && S.flightEnd == null; }
+
+// ステータスバーを長押し（約 1 秒）で 30 秒だけロック解除
+let pressTimer = null;
+$('#status').addEventListener('pointerdown', () => {
+  if (!document.body.classList.contains('locked')) return;
+  document.body.classList.add('show-hint');
+  pressTimer = setTimeout(() => {
+    document.body.classList.remove('locked', 'show-hint');
+    S.unlockUntil = Date.now() + 30000;
+    beep(1);
+  }, 900);
+});
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+  $('#status').addEventListener(ev, () => { clearTimeout(pressTimer); document.body.classList.remove('show-hint'); });
+}
+setInterval(() => {
+  if (isFlying() && !document.body.classList.contains('locked') && Date.now() > S.unlockUntil) lockScreen(true);
+}, 5000);
+
+function showLandedSummary() {
+  const fx = S.fixes.filter((x) => x.t >= S.flightStart && x.t <= S.flightEnd);
+  if (fx.length < 2) return;
+  let dist = 0, maxAlt = -Infinity, maxClimb = 0, maxSink = 0;
+  for (let i = 1; i < fx.length; i++) {
+    dist += C.distance(fx[i - 1].lat, fx[i - 1].lon, fx[i].lat, fx[i].lon);
+    maxAlt = Math.max(maxAlt, alt(fx[i]));
+    const v = Math.abs(fx[i].v || 0) < 15 ? fx[i].v || 0 : 0; // GPS の飛びは除く
+    maxClimb = Math.max(maxClimb, v);
+    maxSink = Math.min(maxSink, v);
+  }
+  const free = C.distance(fx[0].lat, fx[0].lon, fx[fx.length - 1].lat, fx[fx.length - 1].lon);
+  const sec = Math.round((S.flightEnd - S.flightStart) / 1000);
+  const rows = [
+    ['滞空時間', `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`],
+    ['最高高度', `${Math.round(maxAlt)} m`],
+    ['最大上昇', `+${maxClimb.toFixed(1)} m/s`],
+    ['最大シンク', `${maxSink.toFixed(1)} m/s`],
+    ['トラック距離', `${(dist / 1000).toFixed(2)} km`],
+    ['離陸からの直線距離', `${(free / 1000).toFixed(2)} km`],
+  ];
+  if (task && prog && prog.goalT) rows.push(['タスク', `ゴール ${clock(prog.goalT)}`]);
+  $('#landed-list').innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`).join('');
+  $('#landed-igc').hidden = S.demo;
+  $('#landed').classList.remove('hidden');
+}
+$('#landed-close').addEventListener('click', () => $('#landed').classList.add('hidden'));
+$('#landed-igc').addEventListener('click', async () => {
+  const logs = (await db.all('logs').catch(() => [])).sort((a, b) => b.start - a.start);
+  if (logs[0]) exportIGC(logs[0]);
+});
 
 function tickClock() {
   const d = new Date();
@@ -583,7 +744,8 @@ async function saveMapArea() {
   if (!km || km <= 0) return;
   if (km > 30) return alert('一度に保存できるのは半径 30 km までです');
   settings.saveRadiusKm = km; save('settings', settings);
-  const urls = T.tilesForSave(settings.mapLayer, c.lat, c.lon, km * 1000);
+  // 背景地図と、対地高度に使う標高データを一緒に保存
+  const urls = T.tilesForSave(settings.mapLayer, c.lat, c.lon, km * 1000).concat(G.demUrlsAround(c.lat, c.lon, km * 1000));
   if (!confirm(`${T.LAYERS[settings.mapLayer].name}を ${urls.length} 枚（約 ${Math.ceil(urls.length * 0.02)} MB）保存します。\nWi-Fi のある所で行ってください。`)) return;
   const st = $('#map-status');
   st.hidden = false;
@@ -609,6 +771,80 @@ $('#map-layer').addEventListener('click', () => {
   save('settings', settings); renderSettings(); S.dirty = true;
 });
 
+// 地図の自動ズーム: 目標までの距離に合わせる（1.5〜15 km）
+function autoMapWidth() {
+  const f = last();
+  const tg = f && currentTarget(f, alt(f));
+  if (!tg) return ZOOMS[Math.min(settings.zoom, 5)];
+  return Math.max(1500, Math.min(15000, tg.dist * 2.6));
+}
+
+// サーマルアシスト: 直近 2 分の軌跡を昇降の強さで色と大きさを変えて描く。
+// 風で流された分を補正するので、サーマルのコア（一番上がる場所）が分かる。
+function drawThermal(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const css = getComputedStyle(document.body);
+  const fg = css.getPropertyValue('--fg');
+  ctx.fillStyle = css.getPropertyValue('--bg'); ctx.fillRect(0, 0, w, h);
+  const f = last();
+  const gt = C.groundTrack(S.fixes);
+  const up = settings.trackUp && gt && gt.hdg != null ? gt.hdg : 0;
+  const widthM = 300, scale = Math.min(w, h) / widthM;
+  const cx = w / 2, cy = h / 2;
+  const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
+  const wind = S.wind && S.wind.speed > 0.5 ? S.wind : null;
+  const wx = wind ? wind.speed * Math.sin(((wind.from + 180) * Math.PI) / 180) : 0;
+  const wy = wind ? wind.speed * Math.cos(((wind.from + 180) * Math.PI) / 180) : 0;
+  const P = (p) => {
+    const q = C.toXY(f.lat, f.lon, p.lat, p.lon);
+    const dt = (f.t - p.t) / 1000;
+    const x0 = q.x + wx * dt, y0 = q.y + wy * dt; // 空気と一緒に流す
+    const x = x0 * cos - y0 * sin, y = x0 * sin + y0 * cos;
+    return [cx + x * scale, cy - y * scale];
+  };
+  const pts = C.recent(S.fixes, 120);
+  // コア: 上昇している点の重み付き平均
+  let sx = 0, sy = 0, sw = 0;
+  for (const p of pts) {
+    const [x, y] = P(p);
+    const v = p.v || 0;
+    if (v > 0) { sx += x * v; sy += y * v; sw += v; }
+    ctx.beginPath();
+    ctx.arc(x, y, 2 + Math.max(0, Math.min(5, v)) * 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = varioColor(v); ctx.globalAlpha = 0.25 + 0.75 * ((p.t - pts[0].t) / Math.max(1, f.t - pts[0].t));
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  if (sw > 0) {
+    ctx.beginPath(); ctx.arc(sx / sw, sy / sw, 14, 0, Math.PI * 2);
+    ctx.strokeStyle = '#e00000'; ctx.lineWidth = 3; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // 自機
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.rotate((((gt && gt.hdg != null ? gt.hdg : 0) - up) * Math.PI) / 180);
+  ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(12, 9); ctx.lineTo(0, 3); ctx.lineTo(-12, 9); ctx.closePath();
+  ctx.fillStyle = fg; ctx.fill(); ctx.restore();
+  // 見出し・風・縮尺
+  ctx.fillStyle = fg; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('サーマルアシスト', 8, 18);
+  if (wind) {
+    ctx.save(); ctx.translate(w - 30, 32); ctx.rotate(((wind.from + 180 - up) * Math.PI) / 180);
+    ctx.strokeStyle = fg; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(0, -8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(8, -5); ctx.lineTo(-8, -5); ctx.fill();
+    ctx.restore();
+  }
+  const bar = 100;
+  ctx.strokeStyle = fg; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(10, h - 12); ctx.lineTo(10 + bar * scale, h - 12); ctx.stroke();
+  ctx.font = '13px sans-serif'; ctx.fillText('100 m', 10, h - 18);
+}
+
 function niceScale(m) {
   const p = 10 ** Math.floor(Math.log10(m));
   return [1, 2, 5, 10].map((k) => k * p).filter((v) => v <= m).pop();
@@ -618,7 +854,12 @@ function frame() {
   if (S.dirty) {
     S.dirty = false;
     const page = document.querySelector('.page.active').id;
-    if (page === 'page-main') drawMap($('#mini-map'), S.circling ? 400 : ZOOMS[Math.min(settings.zoom, 5)], true);
+    if (page === 'page-main') {
+      // 自動切替: 旋回中（と旋回をやめてから 15 秒）はサーマルアシスト、それ以外は地図
+      const f = last();
+      if (f && (S.circling || f.t - S.thermalEnd < 15000)) drawThermal($('#mini-map'));
+      else drawMap($('#mini-map'), autoMapWidth(), true);
+    }
     if (page === 'page-map') drawMap($('#map'), ZOOMS[settings.zoom], false);
   }
   requestAnimationFrame(frame);
@@ -867,6 +1108,10 @@ window.addEventListener('resize', () => { S.dirty = true; });
 
 function unlockAudio() {
   try { audio ||= new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* 音なし */ }
+  // iPhone はタップした時に一度話させておかないと、後から自動で話せない
+  if (settings.voice !== 'off' && 'speechSynthesis' in window) {
+    try { const u = new SpeechSynthesisUtterance('計器をスタートします'); u.lang = 'ja-JP'; speechSynthesis.speak(u); } catch { /* なし */ }
+  }
 }
 $('#start-btn').addEventListener('click', () => { unlockAudio(); start(false); });
 $('#start-demo').addEventListener('click', () => { unlockAudio(); start(true); });
@@ -884,4 +1129,4 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 }
 
 // テスト用フック
-window.__hang = { S, onFix, settings, start, stop, db, importFile, getTask: () => ({ task, prog }) };
+window.__hang = { S, onFix, settings, start, stop, db, importFile, getTask: () => ({ task, prog }), spoken: [] };
