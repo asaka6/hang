@@ -3,31 +3,30 @@
 export const TILE_CACHE = 'hg-tiles';
 const R = 6378137;
 
+const GSI = (id, ext = 'png') => `https://cyberjapandata.gsi.go.jp/xyz/${id}/{z}/{x}/{y}.${ext}`;
+
+// sources を上から順に重ねて描く。op: 'multiply' は下の地図に影を掛け合わせる
 export const LAYERS = {
   simple: {
-    name: 'シンプル（地形だけ）', max: 16, attr: '出典: 国土地理院', wash: 0.5,
-    url: 'https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png',
+    name: 'シンプル（道路＋地形）', attr: '出典: 国土地理院', wash: 0.1,
+    sources: [
+      { url: GSI('pale'), max: 18 },
+      { url: GSI('hillshademap'), max: 16, op: 'multiply', alpha: 0.45 },
+    ],
   },
-  'gsi-std': {
-    name: '地理院 標準地図', max: 18, attr: '出典: 国土地理院',
-    url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png',
+  terrain: {
+    name: '地形だけ', attr: '出典: 国土地理院', wash: 0.5,
+    sources: [{ url: GSI('hillshademap'), max: 16 }],
   },
-  'gsi-pale': {
-    name: '地理院 淡色地図', max: 18, attr: '出典: 国土地理院',
-    url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',
-  },
-  'gsi-photo': {
-    name: '地理院 航空写真', max: 18, attr: '出典: 国土地理院',
-    url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg',
-  },
+  'gsi-std': { name: '地理院 標準地図', attr: '出典: 国土地理院', sources: [{ url: GSI('std'), max: 18 }] },
+  'gsi-photo': { name: '地理院 航空写真', attr: '出典: 国土地理院', sources: [{ url: GSI('seamlessphoto', 'jpg'), max: 18 }] },
   otm: {
-    name: 'OpenTopoMap（等高線）', max: 17, attr: '© OpenStreetMap contributors, SRTM | © OpenTopoMap (CC-BY-SA)',
-    url: 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+    name: 'OpenTopoMap（等高線）', attr: '© OpenStreetMap contributors, SRTM | © OpenTopoMap (CC-BY-SA)',
+    sources: [{ url: 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png', max: 17 }],
   },
 };
 
-export const tileUrl = (layer, z, x, y) =>
-  LAYERS[layer].url.replace('{z}', z).replace('{x}', x).replace('{y}', y);
+const fill = (tpl, z, x, y) => tpl.replace('{z}', z).replace('{x}', x).replace('{y}', y);
 
 // Web メルカトルのタイル座標
 const rad = (d) => (d * Math.PI) / 180;
@@ -57,10 +56,14 @@ export function tilesAround(lat, lon, radiusM, z) {
 
 // オフライン保存するタイルの一覧（広域は粗く、飛ぶ範囲は細かく）
 export function tilesForSave(layer, lat, lon, radiusM) {
-  const zMax = Math.min(LAYERS[layer].max, radiusM <= 6000 ? 16 : 15);
-  let list = [];
-  for (let z = 8; z <= zMax; z++) list = list.concat(tilesAround(lat, lon, z <= 11 ? Math.max(radiusM, 30000) : radiusM, z));
-  return list.map((t) => tileUrl(layer, t.z, t.x, t.y));
+  const urls = [];
+  for (const src of LAYERS[layer].sources) {
+    const zMax = Math.min(src.max, radiusM <= 6000 ? 16 : 15);
+    for (let z = 8; z <= zMax; z++) {
+      for (const t of tilesAround(lat, lon, z <= 11 ? Math.max(radiusM, 30000) : radiusM, z)) urls.push(fill(src.url, t.z, t.x, t.y));
+    }
+  }
+  return urls;
 }
 
 // ---- 画面表示用のタイル（メモリ上） ----
@@ -69,11 +72,11 @@ const mem = new Map(); // url -> { img, ok, failed }
 let onLoad = () => {};
 export function setOnTileLoad(fn) { onLoad = fn; }
 
-function getTile(layer, z, x, y, request) {
+function getTile(tpl, z, x, y, request) {
   const n = 2 ** z;
   x = ((x % n) + n) % n;
   if (y < 0 || y >= n) return null;
-  const url = tileUrl(layer, z, x, y);
+  const url = fill(tpl, z, x, y);
   let t = mem.get(url);
   if (t) {
     mem.delete(url); mem.set(url, t); // LRU
@@ -96,17 +99,26 @@ function getTile(layer, z, x, y, request) {
 export function drawTiles(ctx, layer, P, center, pxPerM, radiusPx, dpr) {
   const L = LAYERS[layer];
   if (!L) return;
-  const z = zoomFor(pxPerM, center.lat, L.max, dpr);
+  for (const src of L.sources) {
+    ctx.save();
+    ctx.globalCompositeOperation = src.op || 'source-over';
+    ctx.globalAlpha = src.alpha ?? 1;
+    drawSource(ctx, src, P, center, pxPerM, radiusPx, dpr);
+    ctx.restore();
+  }
+}
+
+function drawSource(ctx, src, P, center, pxPerM, radiusPx, dpr) {
+  const z = zoomFor(pxPerM, center.lat, src.max, dpr);
   const radiusM = radiusPx / pxPerM;
   const tiles = tilesAround(center.lat, center.lon, radiusM, z);
   if (tiles.length > 300) return;
-  ctx.save();
   for (const { x, y } of tiles) {
     // 読めていなければ親タイル（粗い地図）の一部を引き伸ばして使う
-    let t = getTile(layer, z, x, y, true), dz = 0;
+    let t = getTile(src.url, z, x, y, true), dz = 0;
     while ((!t || !t.ok) && dz < 4 && z - dz > 0) {
       dz++;
-      t = getTile(layer, z - dz, x >> dz, y >> dz, t && t.failed);
+      t = getTile(src.url, z - dz, x >> dz, y >> dz, t && t.failed);
     }
     if (!t || !t.ok) continue;
     const k = 2 ** dz, sz = 256 / k;
@@ -119,9 +131,10 @@ export function drawTiles(ctx, layer, P, center, pxPerM, radiusPx, dpr) {
       (dpr * (p2[0] - p0[0])) / 256, (dpr * (p2[1] - p0[1])) / 256,
       dpr * p0[0], dpr * p0[1],
     );
-    ctx.drawImage(t.img, sx, sy, sz, sz, 0, 0, 256.8, 256.8); // 継ぎ目が出ないよう少し重ねる
+    // 継ぎ目が出ないよう少し重ねる（影の重ね掛けは重ねると線が出るのでぴったり）
+    const d = src.op ? 256 : 256.8;
+    ctx.drawImage(t.img, sx, sy, sz, sz, 0, 0, d, d);
   }
-  ctx.restore();
 }
 
 // ---- オフライン保存 ----

@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -57,6 +57,7 @@ const DEFAULTS = {
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 if (!settings.simpleMap) { settings.mapLayer = 'simple'; settings.simpleMap = true; save('settings', settings); }
+if (settings.mapLayer !== 'none' && !T.LAYERS[settings.mapLayer]) settings.mapLayer = 'simple'; // 無くなった地図の種類
 let waypoints = load('waypoints', []);
 let goal = load('goal', null);
 let task = load('task', null); // XCTrack の .xctsk から読み込んだ大会タスク
