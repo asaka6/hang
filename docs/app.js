@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.6.1';
+const VERSION = '1.7.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -729,11 +729,13 @@ function drawMap(canvas, widthM, small, view = {}) {
 
   // 背景地図
   if (settings.mapLayer !== 'none') {
-    T.drawTiles(ctx, settings.mapLayer, P, f, scale, Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), dpr);
+    T.drawTiles(ctx, settings.mapLayer, P, f, scale, Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy)), dpr, settings.theme === 'night');
     // 軌跡や文字が見えるように少しだけ薄く（夜は暗く）する
     const wash = T.LAYERS[settings.mapLayer].wash ?? 0.12;
-    ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : `rgba(255,255,255,${wash})`;
-    ctx.fillRect(0, 0, w, h);
+    if (wash) { // シンプル地図は影だけ薄くしてあるので不要
+      ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.45)' : `rgba(255,255,255,${wash})`;
+      ctx.fillRect(0, 0, w, h);
+    }
   }
 
   // サーマル

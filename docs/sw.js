@@ -1,9 +1,9 @@
 // オフラインで動かすためのサービスワーカー（アプリ本体をキャッシュ）
-const CACHE = 'hg-v1.6.1';
+const CACHE = 'hg-v1.7.0';
 const TILE_CACHE = 'hg-tiles'; // 地図タイル（アプリ更新でも消さない）
 const TILE_HOSTS = ['cyberjapandata.gsi.go.jp', 'a.tile.opentopomap.org'];
 const FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'calc.js', 'sim.js', 'tiles.js', 'terrain.js',
+  './', 'index.html', 'style.css', 'app.js', 'calc.js', 'sim.js', 'tiles.js', 'terrain.js', 'mvt.js',
   'presets/SHISHIKU_20260501.wpt', 'presets/2025Tonami_waypoint.wpt', 'presets/task_2026-05-05_1.xctsk',
   'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png',
 ];
