@@ -3,7 +3,7 @@ import { createSim } from './sim.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -71,7 +71,7 @@ const S = {
   circling: false, circleStart: null, thermals: [],
   lastThermal: null, lastGain: null, thermalEnd: 0,
   lowWarnT: 0, lowWarned: false, unlockUntil: 0,
-  fixAt: 0, prevFixAt: 0, viewUp: 0, follow: true, panCenter: null, panUp: 0,
+  fixAt: 0, prevFixAt: 0, viewUp: 0, magHdg: null, follow: true, panCenter: null, panUp: 0,
   watchId: null, simTimer: null, wakeLock: null,
   lastSaved: 0, dirty: true,
 };
@@ -602,6 +602,71 @@ function drawMe(ctx, x, y, rotDeg) {
   ctx.restore();
 }
 
+// 今向いている方向: 動いている時は GPS の進行方向、止まっている時は iPhone の磁気コンパス
+function headingNow(gpsHdg) {
+  const gt = C.groundTrack(S.fixes);
+  if (gpsHdg != null && gt && gt.spd >= 2) return { hdg: gpsHdg, src: 'GPS' };
+  if (S.magHdg != null) return { hdg: S.magHdg, src: '磁気' };
+  return { hdg: gpsHdg, src: 'GPS' };
+}
+
+// コンパス: 方位の目盛り（地図と同じ向き）、上の ▼ が今の方向、
+// 青い矢印が目標の方向、灰色の矢印が風の吹いていく方向
+function drawCompass(ctx, cx, cy, r, up, gpsHdg, targetBrg) {
+  const css = getComputedStyle(document.body);
+  const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
+  const { hdg, src } = headingNow(gpsHdg);
+  const at = (deg, rr) => {
+    const a = ((deg - up) * Math.PI) / 180;
+    return [cx + Math.sin(a) * rr, cy - Math.cos(a) * rr];
+  };
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = settings.theme === 'night' ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.88)';
+  ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
+  // 目盛り
+  for (let d = 0; d < 360; d += 10) {
+    const [x1, y1] = at(d, r - 2), [x2, y2] = at(d, r - (d % 30 ? 6 : 11));
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = fg; ctx.lineWidth = d % 90 ? 1 : 2; ctx.stroke();
+  }
+  ctx.font = `bold ${Math.round(r * 0.28)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const [d, t] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) {
+    const [x, y] = at(d, r * 0.58);
+    ctx.fillStyle = d === 0 ? '#e00000' : fg; ctx.fillText(t, x, y);
+  }
+  // 風（吹いていく方向）
+  if (S.wind) {
+    const [x1, y1] = at(S.wind.from, r * 0.85), [x2, y2] = at(S.wind.from + 180, r * 0.85);
+    ctx.strokeStyle = '#888888'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    const [hx, hy] = at(S.wind.from + 180, r * 0.85), [lx, ly] = at(S.wind.from + 180 - 14, r * 0.55), [rx, ry] = at(S.wind.from + 180 + 14, r * 0.55);
+    ctx.fillStyle = '#888888'; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(lx, ly); ctx.lineTo(rx, ry); ctx.fill();
+  }
+  // 目標の方向
+  if (targetBrg != null) {
+    // 真ん中の数字に重ならないよう、外側だけに太い矢印
+    const [tx, ty] = at(targetBrg, r * 0.92), [lx, ly] = at(targetBrg - 16, r * 0.5), [rx, ry] = at(targetBrg + 16, r * 0.5);
+    const [bx, by] = at(targetBrg, r * 0.6);
+    ctx.fillStyle = css.getPropertyValue('--accent');
+    ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(lx, ly); ctx.lineTo(bx, by); ctx.lineTo(rx, ry); ctx.closePath(); ctx.fill();
+  }
+  // 今の方向（外側の ▼）と数字
+  if (hdg != null) {
+    const [px, py] = at(hdg, r - 2), [lx, ly] = at(hdg - 10, r - 16), [rx, ry] = at(hdg + 10, r - 16);
+    ctx.fillStyle = '#ff8000'; ctx.strokeStyle = bg; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(lx, ly); ctx.lineTo(rx, ry); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.font = `bold ${Math.round(r * 0.3)}px sans-serif`;
+  ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.fillStyle = fg;
+  const label = hdg != null ? `${String(Math.round(C.norm360(hdg)) % 360).padStart(3, '0')}°` : '---';
+  ctx.strokeText(label, cx, cy); ctx.fillText(label, cx, cy);
+  ctx.font = `${Math.round(r * 0.2)}px sans-serif`;
+  const sub = S.wind ? (settings.windUnit === 'ms' ? `風 ${S.wind.speed.toFixed(1)}m/s` : `風 ${Math.round(S.wind.speed * 3.6)}km/h`) : src;
+  ctx.strokeText(sub, cx, cy + r + 12); ctx.fillText(sub, cx, cy + r + 12);
+  ctx.restore();
+}
+
 // view: { center, up, me } を省くと自機中心・自動
 function drawMap(canvas, widthM, small, view = {}) {
   const dpr = window.devicePixelRatio || 1;
@@ -737,27 +802,10 @@ function drawMap(canvas, widthM, small, view = {}) {
     drawMe(ctx, x, y, me.hdg != null ? me.hdg - up : null);
   }
 
-  // 北マーク・風・縮尺
-  ctx.save();
-  ctx.translate(26, 30);
-  ctx.rotate((-up * Math.PI) / 180);
-  ctx.fillStyle = '#e00000';
-  ctx.beginPath(); ctx.moveTo(0, -16); ctx.lineTo(7, 4); ctx.lineTo(-7, 4); ctx.fill();
-  ctx.fillStyle = fg; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('N', 0, 18);
-  ctx.restore();
-
-  if (S.wind) {
-    ctx.save();
-    ctx.translate(w - 34, 34);
-    ctx.rotate(((S.wind.from + 180 - up) * Math.PI) / 180);
-    ctx.strokeStyle = fg; ctx.fillStyle = fg; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(0, 18); ctx.lineTo(0, -10); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(9, -6); ctx.lineTo(-9, -6); ctx.fill();
-    ctx.restore();
-    ctx.fillStyle = fg; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
-    const txt = settings.windUnit === 'ms' ? `${S.wind.speed.toFixed(1)}m/s` : `${Math.round(S.wind.speed * 3.6)}km/h`;
-    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(txt, w - 34, 72);
-    ctx.fillText(txt, w - 34, 72);
+  // コンパス（右上）
+  {
+    const r = Math.max(42, Math.min(70, Math.min(w, h) * 0.17));
+    drawCompass(ctx, w - r - 8, r + 8, r, up, me && me.hdg, tg && me ? C.bearing(me.lat, me.lon, tg.p.lat, tg.p.lon) : null);
   }
 
   const bar = niceScale(widthM / 4);
@@ -768,8 +816,9 @@ function drawMap(canvas, widthM, small, view = {}) {
 
   // 地図の出典（利用条件）
   if (settings.mapLayer !== 'none') {
-    ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
-    ctx.fillText(T.LAYERS[settings.mapLayer].attr, w - 4, small ? h - 4 : 12);
+    ctx.font = '10px sans-serif'; ctx.textAlign = small ? 'right' : 'left';
+    ctx.fillStyle = fg;
+    ctx.fillText(T.LAYERS[settings.mapLayer].attr, small ? w - 4 : 6, small ? h - 4 : 12);
   }
   if (!last()) {
     ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
@@ -1262,7 +1311,26 @@ $('#map-up').addEventListener('click', () => {
 });
 window.addEventListener('resize', () => { S.dirty = true; });
 
+// iPhone の磁気コンパス（止まっている時の向き）。許可はタップした時にしか求められない
+function startMagCompass() {
+  const onOri = (e) => {
+    let hdg = e.webkitCompassHeading;
+    if (hdg == null && e.absolute && e.alpha != null) hdg = 360 - e.alpha;
+    if (hdg == null) return;
+    const turn = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    S.magHdg = C.norm360(hdg + turn);
+  };
+  const listen = () => {
+    window.addEventListener('deviceorientationabsolute', onOri);
+    window.addEventListener('deviceorientation', onOri);
+  };
+  const D = window.DeviceOrientationEvent;
+  if (D && typeof D.requestPermission === 'function') D.requestPermission().then((r) => { if (r === 'granted') listen(); }).catch(() => {});
+  else if (D) listen();
+}
+
 function unlockAudio() {
+  startMagCompass();
   try { audio ||= new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch { /* 音なし */ }
   // iPhone はタップした時に一度話させておかないと、後から自動で話せない
   if (settings.voice !== 'off' && 'speechSynthesis' in window) {
