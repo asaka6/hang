@@ -143,12 +143,19 @@
         <p class="hint">保存済み: <b id="map-saved">-</b></p>
       </fieldset>
       <fieldset>
+        <legend>音声案内</legend>
+        <label>声の案内（全部）
+          <select name="voice"><option value="on">あり</option><option value="off">なし</option></select>
+        </label>
+        <label class="check"><input type="checkbox" name="voiceGlide"><span>着陸地に届かない・これ以上離れると戻れない時に知らせる</span></label>
+        <label class="check"><input type="checkbox" name="thermalGuide"><span>サーマル誘導を使う（地図にオレンジの「?」で候補を表示）</span></label>
+        <label class="check"><input type="checkbox" name="voiceThermal"><span>サーマル誘導を声で案内する</span></label>
+        <p class="hint">サーマル誘導は、今回のフライトで上がった場所・日の当たる斜面や尾根（太陽の向きと国土地理院の地形から計算）・風から、<b>着陸地に帰れる範囲で</b>一番ありそうな方向を「〇時の方向、〇メートル」と案内します。あくまで目安です。</p>
+      </fieldset>
+      <fieldset>
         <legend>表示</legend>
         <label>テーマ
           <select name="theme"><option value="day">昼（白背景・日差し向け）</option><option value="night">夜（黒背景）</option></select>
-        </label>
-        <label>音声案内
-          <select name="voice"><option value="on">あり（スタート・TP・ゴール・高度不足など）</option><option value="off">なし</option></select>
         </label>
         <label>風速の単位
           <select name="windUnit"><option value="ms">m/s</option><option value="kmh">km/h</option></select>

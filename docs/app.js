@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '1.9.0';
+const VERSION = '2.0.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -53,6 +53,7 @@ const DEFAULTS = {
   pilot: '', glider: '', bestLD: 7.5, trimKmh: 35, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
   mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'simple', saveRadiusKm: 10, voice: 'on',
+  voiceGlide: true, thermalGuide: true, voiceThermal: true,
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
 if (!settings.simpleMap) { settings.mapLayer = 'simple'; settings.simpleMap = true; save('settings', settings); }
@@ -71,7 +72,8 @@ const S = {
   wind: null, windT: 0,
   circling: false, circleStart: null, thermals: [],
   lastThermal: null, lastGain: null, thermalEnd: 0,
-  lowWarnT: 0, lowWarned: false, unlockUntil: 0,
+  lowWarnT: 0, lowWarned: false, unlockUntil: 0, turnWarnT: 0,
+  guideT: 0, guideSpokenT: 0, guideSpoken: null, thermalTarget: null, weather: null,
   fixAt: 0, prevFixAt: 0, viewUp: 0, magHdg: null, follow: true, panCenter: null, panUp: 0,
   watchId: null, wakeLock: null,
   lastSaved: 0, dirty: true,
@@ -111,6 +113,7 @@ function onFix(f) {
   f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
   detectFlight(f);
   detectThermal(f);
+  thermalGuide(f);
   if (S.circling && f.t - S.windT > 5000) {
     const w = C.estimateWind(S.fixes);
     if (w) { S.wind = w; S.windT = f.t; }
@@ -164,7 +167,7 @@ function detectThermal(f) {
       // 旋回中に一番よく上がった地点をサーマルとして記録
       const w = S.fixes.filter((x) => x.t >= S.circleStart.t);
       const best = w.reduce((a, b) => (b.v > a.v ? b : a), w[0]);
-      S.thermals.push({ lat: best.lat, lon: best.lon, climb });
+      S.thermals.push({ lat: best.lat, lon: best.lon, climb, t: f.t });
       if (S.thermals.length > 30) S.thermals.shift();
       S.lastThermal = climb;
       S.lastGain = f.alt - S.circleStart.alt;
@@ -178,6 +181,10 @@ async function start() {
   $('#start').classList.add('hidden');
   S.running = true;
   requestWakeLock();
+  const saved = load('weather', null);
+  if (saved && Date.now() - saved.at < 3 * 3600000) S.weather = saved;
+  const near = waypoints.find((w) => w.kind === 'takeoff') || mapCenter();
+  if (near) fetchWeather(near.lat, near.lon);
   await resumeCurrent();
   if (isFlying()) lockScreen(true); // 途中で再起動した時もそのまま飛行画面に
   if (!('geolocation' in navigator)) { alert('この端末では位置情報が使えません'); return; }
@@ -207,7 +214,7 @@ function resetFlight() {
     fixes: [], flightStart: null, flightEnd: null, takeoff: null,
     fastCount: 0, slowSince: null, wind: null, windT: 0,
     circling: false, circleStart: null, thermals: [], lastThermal: null, lastGain: null, thermalEnd: 0,
-    lowWarnT: 0, lowWarned: false, dirty: true,
+    lowWarnT: 0, lowWarned: false, turnWarnT: 0, guideT: 0, guideSpokenT: 0, guideSpoken: null, thermalTarget: null, dirty: true,
   });
 }
 
@@ -326,7 +333,7 @@ function render() {
     setUpDown('v-goal-arr', tg.arrival - settings.margin);
     setText('v-goal-ld', tg.reqLD > 99 ? '>99' : fmt(tg.reqLD, 1));
     setText('v-goal-sub', tg.sub);
-    lowAltitudeWarning(f, tg);
+    lowAltitudeWarning(f, tg, hdg);
   } else {
     setText('v-goal-name', '目標なし');
     for (const id of ['v-goal-dist', 'v-goal-arr', 'v-goal-ld']) setText(id, '--');
@@ -378,15 +385,85 @@ function currentTarget(f, a) {
 }
 
 // 着陸地への到着高度がマージンを下回ったら声で知らせる（1 分に 1 回まで）
-function lowAltitudeWarning(f, tg) {
+function lowAltitudeWarning(f, tg, hdg) {
   // ランディングへの進入中（800m 以内）は高度が下がるのが当然なので知らせない
   if (S.flightStart == null || S.flightEnd != null || !tg.landing || tg.dist < 800) return;
   const low = tg.arrival < settings.margin;
   if (low && !S.lowWarned && f.t - S.lowWarnT > 60000) {
     S.lowWarned = true; S.lowWarnT = f.t;
-    speak(tg.arrival < 0 ? `${tg.p.name} に届きません` : `${tg.p.name} まで高度に余裕がありません`);
+    speak(tg.arrival < 0 ? `${tg.p.name} に届きません` : `${tg.p.name} まで高度に余裕がありません`, 'glide');
   }
   if (!low && tg.arrival > settings.margin + 50) S.lowWarned = false;
+  // まだ届くが、着陸地から離れる向きに飛んでいて余裕が少ない → 引き返す合図
+  if (!low && !S.circling && C.turnBackNeeded(tg.arrival - settings.margin, tg.brg, hdg) && f.t - S.turnWarnT > 45000) {
+    S.turnWarnT = f.t;
+    speak(`これ以上離れると ${tg.p.name} に届きません。${C.clockDir(tg.brg, hdg)}時の方向に戻ってください`, 'glide');
+  }
+}
+
+// ---------- サーマル誘導（声で案内） ----------
+// 今回上がった場所・日の当たる斜面や尾根・風から、帰れる範囲で一番ありそうな場所を探す
+
+function nearestLanding(f) {
+  if (goal) return goal;
+  let best = null, bd = Infinity;
+  for (const w of waypoints) {
+    if (!w.landing) continue;
+    const d = C.distance(f.lat, f.lon, w.lat, w.lon);
+    if (d < bd) { bd = d; best = w; }
+  }
+  return best;
+}
+
+function thermalGuide(f) {
+  if (!settings.thermalGuide || !isFlying()) { S.thermalTarget = null; return; }
+  // 旋回中と、旋回をやめた直後は案内しない（サーマルの中にいる）
+  if (S.circling || f.t - S.thermalEnd < 20000) { S.thermalTarget = null; return; }
+  if (f.t - S.guideT < 10000) return;
+  S.guideT = f.t;
+  const gt = C.groundTrack(S.fixes);
+  if (!gt || gt.hdg == null) return;
+  const w = S.weather;
+  const wind = S.wind || (w && w.windSpeed != null ? { speed: w.windSpeed * 1.3, from: w.windFrom } : null);
+  // 日射が分かれば、曇っている時は斜面の効き目を下げる
+  const sunFactor = w && w.radiation != null ? Math.max(0.2, Math.min(1, w.radiation / 600))
+    : w && w.cloud != null ? 1 - (w.cloud / 100) * 0.7 : 1;
+  const c = C.thermalCandidate({
+    pos: f, alt: alt(f), hdg: gt.hdg, t: f.t, wind, thermals: S.thermals, recent: C.recent(S.fixes, 300), prev: S.thermalTarget,
+    landing: nearestLanding(f), opts: settings, elev: (la, lo) => G.elevation(la, lo),
+    sun: C.sunPosition(f.t, f.lat, f.lon), sunFactor,
+  });
+  S.thermalTarget = c;
+  if (!c) return;
+  const prev = S.guideSpoken;
+  const moved = !prev || C.distance(prev.lat, prev.lon, c.lat, c.lon) > 300;
+  if (c.dist < 150) {
+    if (!prev || !prev.arrived) {
+      S.guideSpoken = { ...c, arrived: true }; S.guideSpokenT = f.t;
+      speak(`${c.reason}の近くです。上がるか確かめてください`, 'thermal');
+    }
+    return;
+  }
+  if (moved || f.t - S.guideSpokenT > 40000) {
+    S.guideSpoken = c; S.guideSpokenT = f.t;
+    const clock = C.clockDir(c.brg, gt.hdg);
+    const m = c.dist < 1000 ? `${Math.round(c.dist / 100) * 100}メートル` : `${(c.dist / 1000).toFixed(1)}キロ`;
+    speak(clock === 12 ? `${c.reason}、まっすぐ ${m}` : `${c.reason}、${clock}時の方向、${m}`, 'thermal');
+  }
+}
+
+// 気象条件（日射・雲・地上の風）。電波がある時だけ取りに行き、取れなければ使わない
+async function fetchWeather(lat, lon) {
+  if (S.weather && Date.now() - S.weather.at < 30 * 60000) return;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}`
+      + '&current=cloud_cover,shortwave_radiation,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms';
+    const r = await fetch(url);
+    if (!r.ok) return;
+    const c = (await r.json()).current || {};
+    S.weather = { at: Date.now(), cloud: c.cloud_cover, radiation: c.shortwave_radiation, windSpeed: c.wind_speed_10m, windFrom: c.wind_direction_10m };
+    save('weather', S.weather);
+  } catch { /* 電波なし */ }
 }
 
 // XCTrack のバリオカラム: 上昇は上へ緑、沈下は下へ赤
@@ -410,7 +487,10 @@ function drawVarioColumn(v) {
 
 // ---------- 音声案内 ----------
 
-function speak(text) {
+// kind: 'glide' = 着陸地に届かない警告、'thermal' = サーマル誘導（それぞれ設定で消せる）
+function speak(text, kind) {
+  if (kind === 'glide' && !settings.voiceGlide) return;
+  if (kind === 'thermal' && !(settings.thermalGuide && settings.voiceThermal)) return;
   if (window.__hang) window.__hang.spoken.push(text);
   if (settings.voice === 'off' || !('speechSynthesis' in window)) return;
   try {
@@ -740,6 +820,15 @@ function drawMap(canvas, widthM, small, view = {}) {
     const [x, y] = P(S.takeoff.lat, S.takeoff.lon);
     ctx.strokeStyle = fg; ctx.lineWidth = 2;
     ctx.strokeRect(x - 6, y - 6, 12, 12);
+  }
+
+  // サーマル誘導の候補（オレンジの点線の丸）
+  if (settings.thermalGuide && S.thermalTarget) {
+    const [x, y] = P(S.thermalTarget.lat, S.thermalTarget.lon);
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = '#ff8000'; ctx.lineWidth = 3; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#ff8000'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('?', x, y + 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
 
   // 目標への線
@@ -1180,7 +1269,10 @@ async function exportIGC(lg) {
 const form = $('#settings');
 function renderSettings() {
   $('#map-layer').textContent = settings.mapLayer === 'none' ? '地図なし' : T.LAYERS[settings.mapLayer].name.replace('地理院 ', '').replace(/（.*）/, '');
-  for (const el of form.elements) if (el.name && el.name in settings) el.value = settings[el.name];
+  for (const el of form.elements) {
+    if (!el.name || !(el.name in settings)) continue;
+    if (el.type === 'checkbox') el.checked = !!settings[el.name]; else el.value = settings[el.name];
+  }
   setText('alt-offset', signed(settings.altOffset, 0));
   document.body.dataset.theme = settings.theme;
   $('#map-up').textContent = settings.trackUp ? '進行方向↑' : '北↑';
@@ -1188,7 +1280,7 @@ function renderSettings() {
 form.addEventListener('input', (e) => {
   const el = e.target;
   if (!el.name) return;
-  settings[el.name] = el.type === 'number' ? Number(el.value) || DEFAULTS[el.name] : el.value;
+  settings[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) || DEFAULTS[el.name] : el.value;
   save('settings', settings);
   document.body.dataset.theme = settings.theme;
   S.dirty = true; render();

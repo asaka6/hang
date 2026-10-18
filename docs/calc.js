@@ -402,3 +402,125 @@ export function toIGC(fixes, meta = {}) {
   }
   return lines.join('\r\n') + '\r\n';
 }
+
+// ---- サーマル誘導 ----
+
+// 太陽の方位・高度 [deg]（NOAA の簡易式）
+export function sunPosition(t, lat, lon) {
+  const jd = t / 86400000 + 2440587.5;
+  const n = jd - 2451545.0;
+  const L = norm360(280.46 + 0.9856474 * n);
+  const g = rad(norm360(357.528 + 0.9856003 * n));
+  const lambda = rad(L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g));
+  const eps = rad(23.439 - 0.0000004 * n);
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+  const gmst = norm360(280.46061837 + 360.98564736629 * n);
+  const ha = rad(norm360(gmst + lon - deg(ra)));
+  const la = rad(lat);
+  const el = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha));
+  const az = Math.atan2(-Math.sin(ha), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(ha));
+  return { az: norm360(deg(az)), el: deg(el) };
+}
+
+// 時計の方向（進行方向を 12 時として 1〜12）
+export function clockDir(brg, hdg) {
+  const c = Math.round(norm360(brg - hdg) / 30) % 12;
+  return c === 0 ? 12 : c;
+}
+
+// ある地点の地形の特徴: 斜面の向き（下り方向）・傾き・尾根らしさ
+// elev(lat, lon) は標高 [m] か null を返す関数
+export function terrainAt(lat, lon, elev, step = 60) {
+  const h = elev(lat, lon);
+  if (h == null) return null;
+  const n = fromXY(lat, lon, 0, step), s = fromXY(lat, lon, 0, -step);
+  const e = fromXY(lat, lon, step, 0), w = fromXY(lat, lon, -step, 0);
+  const hn = elev(n.lat, n.lon), hs = elev(s.lat, s.lon), he = elev(e.lat, e.lon), hw = elev(w.lat, w.lon);
+  if ([hn, hs, he, hw].some((v) => v == null)) return null;
+  const dx = (he - hw) / (2 * step), dy = (hn - hs) / (2 * step);
+  const slope = Math.hypot(dx, dy); // 勾配（tan）
+  const aspect = norm360(deg(Math.atan2(-dx, -dy))); // 斜面が向いている方位（下る方向）
+  const ridge = h - (hn + hs + he + hw) / 4; // 周りより高い = 尾根・張り出し
+  return { h, slope, aspect, ridge };
+}
+
+// サーマルが出ていそうな場所を 1 つ選ぶ。
+// in: { pos, alt, hdg, t, wind, thermals, recent, landing, opts, elev, sun, sunFactor, prev }
+//   thermals: 今回のフライトで上がった場所 [{ lat, lon, climb, t }]
+//   recent: 直近の軌跡（上がらなかった所を避ける）
+//   landing: 戻る着陸地 { lat, lon, alt }
+//   prev: 前回案内した候補（コロコロ変わらないよう少し優先する）
+// out: { lat, lon, dist, brg, reason, score } または null
+export function thermalCandidate(inp) {
+  const { pos, alt, hdg, t, wind, thermals = [], recent = [], landing, opts, elev, sun, sunFactor = 1, prev } = inp;
+  const cands = [];
+  const reachable = (p) => {
+    const d1 = distance(pos.lat, pos.lon, p.lat, p.lon);
+    const g1 = groundGlide(opts.bestLD, opts.trimKmh, bearing(pos.lat, pos.lon, p.lat, p.lon), wind);
+    if (g1 <= 0) return null;
+    let left = alt - d1 / g1;
+    if (landing) {
+      const d2 = distance(p.lat, p.lon, landing.lat, landing.lon);
+      const g2 = groundGlide(opts.bestLD, opts.trimKmh, bearing(p.lat, p.lon, landing.lat, landing.lon), wind);
+      if (g2 <= 0) return null;
+      if (left - d2 / g2 - (landing.alt || 0) < (opts.margin || 0)) return null; // 行ったら帰れない
+    }
+    return { d1, left };
+  };
+  // 上がらなかった場所の近くは避ける
+  const searched = (p) => recent.some((f) => (f.v ?? 0) < 0.3 && distance(f.lat, f.lon, p.lat, p.lon) < 150);
+
+  // 1) 今回上がった場所（新しく強いほど高得点。20 分くらいで薄れる）
+  for (const th of thermals) {
+    const age = (t - (th.t ?? t)) / 60000;
+    if (age > 30 || th.climb < 0.3) continue;
+    cands.push({ lat: th.lat, lon: th.lon, base: 3 * th.climb * Math.exp(-age / 20), reason: 'さっき上がった場所' });
+  }
+
+  // 2) 地形: 日の当たる斜面・尾根・風上の斜面
+  if (elev) {
+    const R = 2400, step = 240;
+    const sunOk = sun && sun.el > 8;
+    const sunW = sunOk ? Math.sin(rad(sun.el)) * sunFactor : 0;
+    for (let x = -R; x <= R; x += step) {
+      for (let y = -R; y <= R; y += step) {
+        if (Math.hypot(x, y) > R || Math.hypot(x, y) < 200) continue;
+        const p = fromXY(pos.lat, pos.lon, x, y);
+        const tr = terrainAt(p.lat, p.lon, elev);
+        if (!tr) continue;
+        if (alt - tr.h < 250) continue; // 地面に近すぎる場所には行かせない
+        const steep = Math.min(1, tr.slope / 0.35);
+        const sunScore = sunOk ? Math.max(0, Math.cos(rad(tr.aspect - sun.az))) * steep * sunW : 0;
+        const ridgeScore = Math.max(0, Math.min(1, tr.ridge / 15));
+        const windScore = wind && wind.speed > 1.5 && wind.speed < 9
+          ? Math.max(0, Math.cos(rad(tr.aspect - wind.from))) * steep * 0.5 : 0;
+        const base = 1.2 * sunScore + 0.8 * ridgeScore * (0.5 + sunW) + windScore;
+        if (base < 0.35) continue;
+        const reason = ridgeScore * 0.8 > sunScore * 1.2 && ridgeScore * 0.8 > windScore ? '尾根'
+          : windScore > sunScore * 1.2 ? '風上の斜面' : '日の当たる斜面';
+        cands.push({ lat: p.lat, lon: p.lon, base, reason });
+      }
+    }
+  }
+
+  let best = null;
+  for (const c of cands) {
+    const r = reachable(c);
+    if (!r) continue;
+    let score = c.base / (1 + r.d1 / 900); // 近いほど良い
+    if (searched(c)) score *= 0.3;
+    // 後ろに戻ると旋回で高度を失うので、前の方を少し優先
+    if (hdg != null) score *= 0.75 + 0.25 * Math.cos(rad(bearing(pos.lat, pos.lon, c.lat, c.lon) - hdg));
+    if (prev && distance(prev.lat, prev.lon, c.lat, c.lon) < 250) score *= 1.4;
+    if (!best || score > best.score) best = { lat: c.lat, lon: c.lon, dist: r.d1, brg: bearing(pos.lat, pos.lon, c.lat, c.lon), reason: c.reason, score };
+  }
+  return best;
+}
+
+// 着陸地から離れていて、高度の余裕（到着高度 − 安全マージン）が少ない = これ以上離れると戻れない
+export function turnBackNeeded(reserve, brgToLanding, hdg, warnAt = 60) {
+  if (hdg == null) return false;
+  const away = Math.abs(norm180(brgToLanding - hdg)) > 100;
+  return away && reserve < warnAt;
+}
