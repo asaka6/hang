@@ -1,5 +1,5 @@
 // オフラインで動かすためのサービスワーカー（アプリ本体をキャッシュ）
-const CACHE = 'hg-v2.6.0';
+const CACHE = 'hg-v2.7.0';
 const TILE_CACHE = 'hg-tiles'; // 地図タイル（アプリ更新でも消さない）
 const TILE_HOSTS = ['cyberjapandata.gsi.go.jp', 'a.tile.opentopomap.org'];
 const FILES = [

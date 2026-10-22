@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -52,7 +52,7 @@ const db = (() => {
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 7.5, trimKmh: 35, margin: 100,
   altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30,
-  mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'simple', saveRadiusKm: 10, voice: 'on',
+  mapWidth: 3000, windUnit: 'ms', mapLayer: 'simple', saveRadiusKm: 10, voice: 'on',
   voiceGlide: true, thermalGuide: true, voiceThermal: true,
 };
 const settings = { ...DEFAULTS, ...load('settings', {}) };
@@ -73,7 +73,7 @@ const S = {
   lastThermal: null, lastGain: null, thermalEnd: 0,
   lowWarnT: 0, lowWarned: false, unlockUntil: 0, turnWarnT: 0,
   guideT: 0, guideSpokenT: 0, guideSpoken: null, thermalTarget: null, weather: null,
-  fixAt: 0, prevFixAt: 0, viewUp: 0, magHdg: null, follow: true, panCenter: null, panUp: 0,
+  fixAt: 0, prevFixAt: 0, magHdg: null, follow: true, panCenter: null, panUp: 0,
   watchId: null, wakeLock: null,
   lastSaved: 0, dirty: true,
 };
@@ -637,17 +637,6 @@ function predicted() {
   return { lat: p.lat, lon: p.lon, hdg: gt.hdg };
 }
 
-// 地図の向き（進行方向アップ）も急に回らないよう少しずつ回す
-let lastFrameAt = performance.now();
-function smoothUp(target) {
-  const now = performance.now();
-  const k = Math.min(1, ((now - lastFrameAt) / 1000) * 3);
-  lastFrameAt = now;
-  if (target == null) return S.viewUp;
-  S.viewUp = C.norm360(S.viewUp + C.norm180(target - S.viewUp) * k);
-  return S.viewUp;
-}
-
 // Google マップのような青い現在地マーカー（向いている方向に光の扇）
 function drawMe(ctx, x, y, rotDeg) {
   ctx.save();
@@ -688,7 +677,7 @@ function drawCompassCell() {
   const me = predicted();
   const f = last();
   const tg = f && currentTarget(f, alt(f));
-  const up = settings.trackUp ? S.viewUp : 0;
+  const up = 0; // 地図は北が上で固定
   drawCompass(ctx, w / 2, h / 2, Math.min(w, h) / 2 - 3, up, me && me.hdg, tg && me ? C.bearing(me.lat, me.lon, tg.p.lat, tg.p.lon) : null, { bgAlpha: 0, sub: false });
 }
 
@@ -775,9 +764,9 @@ function drawMap(canvas, widthM, small, view = {}) {
     ctx.fillText('GPS 待ち…', w / 2, h / 2);
     return;
   }
-  const up = view.up != null ? view.up : settings.trackUp ? smoothUp(me && me.hdg) : 0;
+  const up = view.up != null ? view.up : 0; // 地図は北が上で固定
   const scale = w / widthM; // px / m
-  const cx = w / 2, cy = h * (settings.trackUp && !view.center ? 0.62 : 0.5);
+  const cx = w / 2, cy = h / 2;
   const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
   ctx.lineJoin = 'round'; // 文字の縁取りにトゲが出ないように
   const P = (lat, lon) => {
@@ -978,7 +967,7 @@ function drawThermalInto(ctx, ox, oy, w, h) {
   ctx.clip();
   const f = last();
   const gt = C.groundTrack(S.fixes);
-  const up = settings.trackUp ? S.viewUp : 0;
+  const up = 0;
   const widthM = 300, scale = Math.min(w, h) / widthM;
   const cx = ox + w / 2, cy = oy + h / 2;
   const cos = Math.cos((-up * Math.PI) / 180), sin = Math.sin((-up * Math.PI) / 180);
@@ -1584,7 +1573,6 @@ function renderSettings() {
   }
   setText('alt-offset', signed(settings.altOffset, 0));
   document.body.dataset.theme = settings.theme;
-  $('#map-up').textContent = settings.trackUp ? '進行方向↑' : '北↑';
 }
 form.addEventListener('input', (e) => {
   const el = e.target;
@@ -1623,10 +1611,6 @@ $$('[data-zoom]').forEach((b) => b.addEventListener('click', () => {
   settings.mapWidth = Math.max(150, Math.min(100000, settings.mapWidth * k));
   save('settings', settings); S.dirty = true;
 }));
-$('#map-up').addEventListener('click', () => {
-  settings.trackUp = !settings.trackUp;
-  save('settings', settings); renderSettings(); S.dirty = true; render();
-});
 window.addEventListener('resize', () => { S.dirty = true; });
 
 // iPhone の磁気コンパス（止まっている時の向き）。許可はタップした時にしか求められない
