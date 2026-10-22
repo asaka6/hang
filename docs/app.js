@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.7.0';
+const VERSION = '2.8.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -813,30 +813,34 @@ function drawMap(canvas, widthM, small, view = {}) {
     ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(x, y); ctx.stroke();
   }
 
-  // ウェイポイント
-  ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left';
+  // ウェイポイント（地図を隠さないよう小さく。一般の地点の名前は拡大した時だけ）
+  ctx.textAlign = 'left';
+  const showMinorNames = widthM <= 2500;
   for (const wp of waypoints) {
     const isGoal = goal && goal.lat === wp.lat && goal.lon === wp.lon;
+    const major = isGoal || wp.landing || wp.kind === 'takeoff' || wp.kind === 'nogo';
     // 飛行画面では飛ぶのに必要な地点（着陸地・テイクオフ・危険・ゴール）だけ
-    if (small && !isGoal && !wp.landing && wp.kind !== 'takeoff' && wp.kind !== 'nogo') continue;
+    if (small && !major) continue;
     const [x, y] = P(wp.lat, wp.lon);
     if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
-    ctx.strokeStyle = fg; ctx.lineWidth = 2;
+    ctx.strokeStyle = fg; ctx.lineWidth = 1.5;
     if (wp.kind === 'nogo') {
-      ctx.strokeStyle = '#e00000'; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.moveTo(x - 8, y - 8); ctx.lineTo(x + 8, y + 8); ctx.moveTo(x + 8, y - 8); ctx.lineTo(x - 8, y + 8); ctx.stroke();
+      ctx.strokeStyle = '#e00000'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5); ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5); ctx.stroke();
     } else if (wp.kind === 'takeoff') {
-      ctx.beginPath(); ctx.moveTo(x, y - 9); ctx.lineTo(x + 8, y + 6); ctx.lineTo(x - 8, y + 6); ctx.closePath();
+      ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath();
       ctx.fillStyle = '#e0a000'; ctx.fill(); ctx.stroke();
     } else {
-      ctx.beginPath(); ctx.arc(x, y, isGoal ? 9 : 6, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(x, y, isGoal ? 6 : wp.landing ? 5 : 3, 0, Math.PI * 2);
       ctx.fillStyle = wp.landing ? '#00a040' : css.getPropertyValue('--accent');
-      ctx.fill(); ctx.stroke();
+      ctx.fill();
+      if (major) ctx.stroke();
     }
-    if (!small || wp.landing || isGoal) {
+    if (major ? !small || wp.landing || isGoal : showMinorNames) {
       // 地図の上でも読めるよう白（夜は黒）で縁取り
-      ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 10, y + 5);
-      ctx.fillStyle = fg; ctx.fillText(wp.name, x + 10, y + 5);
+      ctx.font = major ? 'bold 12px sans-serif' : '11px sans-serif';
+      ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 7, y + 4);
+      ctx.fillStyle = major ? fg : css.getPropertyValue('--muted'); ctx.fillText(wp.name, x + 7, y + 4);
     }
   }
 
@@ -1106,7 +1110,7 @@ function renderWaypoints() {
       <button class="small danger" data-act="del">削除</button>`;
     li.querySelector('.name').textContent = wp.name;
     li.querySelector('.meta').textContent =
-      (wp.code ? `${wp.code} ・ ` : '') + `標高 ${Math.round(wp.alt || 0)} m` + (d != null ? ` ・ ${(d / 1000).toFixed(1)} km` : '');
+      (wp.romaji ? `${wp.romaji} ・ ` : '') + (wp.code ? `${wp.code} ・ ` : '') + `標高 ${Math.round(wp.alt || 0)} m` + (d != null ? ` ・ ${(d / 1000).toFixed(1)} km` : '');
     li.addEventListener('click', (e) => {
       const act = e.target.dataset.act;
       if (act === 'goal') { goal = isGoal ? null : { ...wp }; save('goal', goal); }
@@ -1153,6 +1157,7 @@ $('#wp-file').addEventListener('change', async (e) => {
 
 function importFile({ kind, data }, name, quiet = false) {
   if (kind === 'waypoints') {
+    data.forEach(toJapanese);
     const replace = !quiet && waypoints.length && confirm(`${name}\n${data.length} 件のウェイポイントを読み込みました。\n既存のウェイポイントを置き換えますか？（キャンセル = 追加）`);
     // 同じ地点の重複は追加しない
     const key = (w) => `${w.lat.toFixed(5)},${w.lon.toFixed(5)}`;
@@ -1193,7 +1198,24 @@ const SCHOOL = [
 ];
 const driveUrl = (id) => `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`;
 
+// 配布ウェイポイントのローマ字名を日本語名にする（元の名前は romaji に残す）
+let JA_NAMES = {};
+function toJapanese(wp) {
+  const ja = JA_NAMES[wp.name];
+  if (ja) { wp.romaji = wp.name; wp.name = ja; }
+  return wp;
+}
+const jaReady = fetch('presets/names-ja.json').then((r) => r.json()).then((m) => {
+  JA_NAMES = m;
+  // すでに読み込んであるウェイポイントとゴールも直す
+  let changed = false;
+  for (const w of waypoints) if (JA_NAMES[w.name]) { toJapanese(w); changed = true; }
+  if (goal && JA_NAMES[goal.name]) { toJapanese(goal); save('goal', goal); changed = true; }
+  if (changed) { save('waypoints', waypoints); S.dirty = true; }
+}).catch(() => {});
+
 async function loadSchool(item, fromDrive) {
+  await jaReady;
   let text = null;
   if (fromDrive) {
     try {
@@ -1374,9 +1396,10 @@ function drawLogMap() {
     if (!wp.landing && wp.kind !== 'takeoff') continue;
     const [x, y] = P(wp.lat, wp.lon);
     if (x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
-    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2);
-    ctx.fillStyle = wp.landing ? '#00a040' : '#e0a000'; ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke();
-    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 9, y + 4); ctx.fillStyle = fg; ctx.fillText(wp.name, x + 9, y + 4);
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = wp.landing ? '#00a040' : '#e0a000'; ctx.fill(); ctx.strokeStyle = fg; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.font = 'bold 12px sans-serif';
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.strokeText(wp.name, x + 7, y + 4); ctx.fillStyle = fg; ctx.fillText(wp.name, x + 7, y + 4);
   }
   // サーマル（番号と上昇率）
   LV.a.thermals.forEach((th, i) => {
