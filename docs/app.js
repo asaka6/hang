@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.3.0';
+const VERSION = '2.4.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -132,24 +132,33 @@ function detectFlight(f) {
   // 対地高度（国土地理院の標高データ）。データが無い場所では null
   const ground = G.elevation(f.lat, f.lon);
   f.agl = ground != null && f.alt != null ? alt(f) - ground : null;
-  if (S.flightStart == null) {
-    const t = C.detectTakeoff(C.recent(S.fixes, 240));
+  if (S.flightStart == null || S.flightEnd != null) {
+    // 離陸待ち、または着陸後（同じ日の 2 本目も記録できるよう、着陸より後の点だけで判定）
+    const after = C.recent(S.fixes, 240).filter((x) => S.flightEnd == null || x.t > S.flightEnd);
+    const t = C.detectTakeoff(after);
     if (t != null) startFlight(t);
     return;
   }
-  if (S.flightEnd != null) return;
-  const w = C.recent(S.fixes, 160);
+  const w = C.recent(S.fixes, 160).filter((x) => x.t >= S.flightStart);
   const hasTerrain = w.filter((x) => x.agl != null).length > w.length * 0.6;
-  const t = C.detectLanding(w, hasTerrain);
-  if (t != null) {
-    S.flightEnd = t;
-    saveLog();
-    onLanding();
-  }
+  // 止まって 90 秒、または降りてすぐ機体を担いで歩いた時
+  const t = C.detectLanding(w, hasTerrain) ?? (hasTerrain ? C.detectWalkingLanding(w) : null);
+  if (t != null) endFlight(t);
+}
+
+function endFlight(t) {
+  S.flightEnd = t;
+  saveLog();
+  onLanding();
 }
 
 function startFlight(t) {
   const f0 = S.fixes.find((x) => x.t >= t) || last();
+  if (S.flightEnd != null) {
+    // 2 本目: 前のフライトのサーマルなどを片付ける（風はそのまま使う）
+    Object.assign(S, { thermals: [], lastThermal: null, lastGain: null, circling: false, circleStart: null,
+      thermalEnd: 0, lowWarned: false, lowWarnT: 0, turnWarnT: 0, guideSpoken: null, thermalTarget: null });
+  }
   S.flightStart = f0.t;
   S.takeoff = { lat: f0.lat, lon: f0.lon, alt: f0.alt };
   S.flightEnd = null;
@@ -349,6 +358,7 @@ function render() {
     setText('v-goal-sub', 'WP タブで着陸地を読み込むと自動で案内します');
   }
 
+  document.body.classList.toggle('flying', isFlying());
   // ステータスバー
   const rec = $('#rec');
   if (S.flightStart != null && S.flightEnd == null) { rec.textContent = '● 飛行中'; rec.className = 'badge rec'; }
@@ -527,6 +537,16 @@ function onLanding() {
   lockScreen(false);
   showLandedSummary();
 }
+
+// 手動で着陸: ロックを外すと出る「着陸した」ボタン → 確認 → 地面に降りた時刻までさかのぼって終える
+$('#land-btn').addEventListener('click', () => $('#land-ask').classList.remove('hidden'));
+$('#land-no').addEventListener('click', () => $('#land-ask').classList.add('hidden'));
+$('#land-yes').addEventListener('click', () => {
+  $('#land-ask').classList.add('hidden');
+  if (!isFlying()) return;
+  const t = C.landingTime(S.fixes.filter((x) => x.t >= S.flightStart));
+  endFlight(Math.max(S.flightStart, t ?? last().t));
+});
 
 // 飛行中は画面をロックして、ハーネスや手袋が当たっても何も変わらないようにする
 function lockScreen(on) {

@@ -653,7 +653,7 @@ export function detectTakeoff(fixes) {
   return leave.t;
 }
 
-// 着陸: 90 秒（地形データが無い時は 150 秒）、ほぼ同じ場所（8m 以内）で止まっていて、
+// 着陸（その 1）: 90 秒（地形データが無い時は 150 秒）、ほぼ同じ場所（8m 以内）で止まっていて、
 // 高さもほとんど変わらず、対地 15m 未満。風の中で浮いて止まっている時は高さが揺れ、場所も流れるので当てはまらない。
 // 戻り値: 止まり始めた時刻または null
 export function detectLanding(fixes, hasTerrain) {
@@ -679,4 +679,37 @@ export function detectLanding(fixes, hasTerrain) {
     if (agl.length < w.length * 0.6 || median(agl) > 15) return null;
   }
   return w[0].t;
+}
+
+// 着陸（その 2）: 降りてすぐ機体を担いで歩いても判定できるように。
+// 90 秒間、歩く速さ以下で、対地高度がずっと地面と同じくらい（中央値 8m 未満、9 割が 15m 未満）。
+// 地面すれすれを 90 秒も浮き続けることは無いので、飛んでいる時には当てはまらない。地形データが必要。
+// 戻り値: 地面に降りた時刻（下の landingTime）または null
+export function detectWalkingLanding(fixes) {
+  const n = fixes.length;
+  if (!n) return null;
+  const tEnd = fixes[n - 1].t;
+  let a = n - 1;
+  while (a > 0 && tEnd - fixes[a - 1].t <= 90000) a--;
+  const w = fixes.slice(a);
+  if (tEnd - w[0].t < 88000 || w.length < 54) return null;
+  const agl = w.map((f) => f.agl);
+  if (agl.some((x) => x == null)) return null;
+  const sorted = agl.slice().sort((x, y) => x - y);
+  if (median(agl) > 8 || sorted[Math.floor(sorted.length * 0.9)] > 15) return null;
+  if (median(w.map((f) => f.spd ?? 0)) > 7 * KMH) return null;
+  return landingTime(fixes);
+}
+
+// 地面に降りた時刻: 最後に「動いていた」点（歩くより速い 時速 7km 以上、または対地 5m 以上）の次の点。
+// 減速しながらの最終進入まで記録に入れ、降りた後に歩いた分は入れない。
+// 手動で「着陸した」を押した時もこれを使う
+export function landingTime(fixes) {
+  for (let i = fixes.length - 1; i >= 0; i--) {
+    const f = fixes[i];
+    if ((f.spd ?? 0) >= 7 * KMH || (f.agl != null && f.agl >= 5)) {
+      return (fixes[i + 1] || f).t;
+    }
+  }
+  return fixes.length ? fixes[0].t : null;
 }

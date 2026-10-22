@@ -117,3 +117,36 @@ test('without terrain data, landing needs 150 seconds standing still', () => {
   assert.equal(firstLanding(still(120), false), null);
   assert.ok(firstLanding(still(160), false) != null);
 });
+
+test('landing is detected while walking away with the glider', () => {
+  const fx = track([
+    { sec: 60, spd: 30, agl: 80 },
+    { sec: 6, spd: 15, agl: (k) => 12 - k * 2 },            // 進入して降りる
+    { sec: 5, spd: 0, agl: 1 },
+    { sec: 120, spd: 4, hdg: 90, agl: (k, r) => 1 + (r() - 0.5) * 8 }, // 担いで歩く（GPS の高さのばらつき込み）
+  ], { seed: 5 });
+  const at = (() => { for (let i = 1; i <= fx.length; i++) { const t = C.detectWalkingLanding(fx.slice(Math.max(0, i - 200), i)); if (t != null) return { t, i }; } return null; })();
+  assert.ok(at, 'walking landing should be detected');
+  assert.ok(at.t >= T0 + 60000 && at.t <= T0 + 67000, `touchdown ${(at.t - T0) / 1000}`);
+  // 止まって判定するほうは、歩いていると判定しない
+  assert.equal(firstLanding(fx), null);
+});
+
+test('walking rule never fires in flight', () => {
+  // リッジで地面すれすれ（対地 10m）に浮いてゆっくり流れる
+  const hover = track([{ sec: 300, spd: 3, hdg: 0, agl: (k) => 10 + 4 * Math.sin(k / 7) }]);
+  for (let i = 1; i <= hover.length; i++) assert.equal(C.detectWalkingLanding(hover.slice(Math.max(0, i - 200), i)), null);
+  // 地形データが無い時は判定しない
+  const noTerrain = track([{ sec: 200, spd: 3, agl: null }]);
+  assert.equal(C.detectWalkingLanding(noTerrain), null);
+});
+
+test('manual landing time goes back to touchdown, not when the button was pressed', () => {
+  const fx = track([
+    { sec: 60, spd: 30, agl: 80 },
+    { sec: 4, spd: 12, agl: (k) => 10 - k * 3 },
+    { sec: 200, spd: 4, agl: 1 },                            // 歩いてから「着陸した」を押す
+  ]);
+  const t = C.landingTime(fx);
+  assert.ok(t >= T0 + 60000 && t <= T0 + 64000, `touchdown ${(t - T0) / 1000}`);
+});

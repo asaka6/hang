@@ -17,7 +17,7 @@
 <body data-theme="day">
 
 <header id="status">
-  <div id="lock-hint">飛行中ロック中 ・ ここを長押しで解除</div>
+  <div id="lock-hint">飛行中ロック中 ・ ここを長押しで解除（着陸したら解除して「着陸した」）</div>
   <span id="gps" class="badge bad">GPS --</span>
   <span id="rec" class="badge">待機</span>
   <span id="ftime">0:00</span>
@@ -51,6 +51,7 @@
       </div>
     </div>
     <canvas id="mini-map"></canvas>
+    <button id="land-btn" class="primary">着陸した</button>
   </section>
 
   <!-- マップ -->
@@ -201,6 +202,15 @@
     <ul class="summary" id="lv-stats"></ul>
     <h3 class="lv-h">サーマル</h3>
     <ul class="list" id="lv-thermals"></ul>
+  </div>
+</div>
+
+<div id="land-ask" class="overlay hidden">
+  <div class="card">
+    <h1>着陸しましたか？</h1>
+    <p>記録を終えて保存します。記録の終わりは、地面に降りた時までさかのぼります。</p>
+    <button id="land-yes" class="primary">着陸した（記録を終わる）</button>
+    <button id="land-no">まだ飛んでいる</button>
   </div>
 </div>
 
