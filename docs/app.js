@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.4.0';
+const VERSION = '2.5.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -165,10 +165,10 @@ function startFlight(t) {
   onTakeoff();
 }
 
-// 地形データが無く自動で判定できない時は、ステータスの「離陸待ち」を押して手動で始める
+// 自動で始まらない時（ゆっくりのソアリングなど）は、ステータスの「離陸待ち」を押して手動で始める
 $('#rec').addEventListener('click', () => {
   if (!S.running || S.flightStart != null || !last()) return;
-  if (confirm('今から「飛行中」にして記録を始めますか？\n（地形データが無い場所では自動で離陸を判定しません）')) startFlight(last().t);
+  if (confirm('今から「飛行中」にして記録を始めますか？')) startFlight(last().t);
 });
 
 function detectThermal(f) {
@@ -363,12 +363,7 @@ function render() {
   const rec = $('#rec');
   if (S.flightStart != null && S.flightEnd == null) { rec.textContent = '● 飛行中'; rec.className = 'badge rec'; }
   else if (S.flightEnd != null) { rec.textContent = '着陸'; rec.className = 'badge ok'; }
-  else {
-    // 地形データが取れていない時は自動判定しないので、押して始められることを示す
-    const noTerrain = S.fixes.length > 10 && C.recent(S.fixes, 10).every((x) => x.agl == null);
-    rec.textContent = noTerrain ? '離陸待ち（押して開始）' : '離陸待ち';
-    rec.className = noTerrain ? 'badge warn' : 'badge';
-  }
+  else { rec.textContent = '離陸待ち'; rec.className = 'badge'; }
   if (S.flightStart != null) {
     const sec = Math.floor(((S.flightEnd ?? f.t) - S.flightStart) / 1000);
     setText('ftime', `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}`);

@@ -43,46 +43,32 @@ function firstLanding(fx, terrain = true) {
 test('foot launch is detected and dated to the start of the run', () => {
   const fx = track([
     { sec: 30, spd: 0, agl: 2 },                      // テイクオフで準備
-    { sec: 5, spd: 20, agl: 1 },                      // 助走
-    { sec: 120, spd: 35, agl: (k) => 3 + k * 2 },     // 斜面が離れていく
+    { sec: 4, spd: 18, agl: 1 },                      // 助走
+    { sec: 120, spd: 35, agl: null },                 // 飛行（地形データ無しでも判定できる）
   ]);
   const r = firstTakeoff(fx);
   assert.ok(r, 'takeoff should be detected');
   assert.equal(r.t, T0 + 30000);
-  assert.ok(r.at - T0 < 30000 + 5000 + 40000, 'within ~40 s of launch');
+  assert.ok(r.at - (T0 + 30000) <= 15000, 'within ~15 s of launch');
 });
 
-test('cars never take off', () => {
-  // 山道を走る（GPS と地形の誤差で対地 ±10m、たまに 30m 跳ねる）
-  const road = track([
-    { sec: 60, spd: 0, agl: 1 },
-    { sec: 900, spd: 45, hdg: 30, agl: (k, r) => (r() - 0.5) * 20 + (k % 97 === 0 ? 30 : 0) },
-    { sec: 120, spd: 0, agl: 2 },
-    { sec: 600, spd: 70, hdg: 200, agl: (k, r) => (r() - 0.5) * 20 },
-  ], { seed: 7 });
-  assert.equal(firstTakeoff(road), null);
-  // 止まった後に高架（谷の上 40m）を時速 80km で走る
-  const viaduct = track([
-    { sec: 40, spd: 0, agl: 1 },
-    { sec: 20, spd: 60, agl: 2 },
-    { sec: 90, spd: 80, agl: 40 },
+test('walking, aborted runs and GPS spikes are not takeoffs', () => {
+  // テイクオフ周りを歩く・準備で動き回る
+  const walk = track([{ sec: 600, spd: 5, hdg: 40, agl: 1 }, { sec: 60, spd: 9, agl: 1 }]);
+  assert.equal(firstTakeoff(walk), null);
+  // 助走して途中でやめる（4 秒だけ時速 20km）を何度か
+  const abort = track([
+    { sec: 30, spd: 0, agl: 1 }, { sec: 4, spd: 20, agl: 1 }, { sec: 30, spd: 0, agl: 1 },
+    { sec: 5, spd: 22, agl: 1 }, { sec: 60, spd: 2, agl: 1 },
   ]);
-  assert.equal(firstTakeoff(viaduct), null);
-  // 高架の上で渋滞（ゆっくり）
-  const jam = track([
-    { sec: 40, spd: 0, agl: 1 },
-    { sec: 20, spd: 30, agl: 2 },
-    { sec: 30, spd: 60, agl: 40 },
-    { sec: 60, spd: 12, agl: 40 },
-  ]);
-  assert.equal(firstTakeoff(jam), null);
-});
-
-test('no automatic takeoff without terrain data or with poor altitude accuracy', () => {
-  const noTerrain = track([{ sec: 30, spd: 0, agl: null }, { sec: 5, spd: 20, agl: null }, { sec: 120, spd: 35, agl: null }]);
-  assert.equal(firstTakeoff(noTerrain), null);
-  const badAcc = track([{ sec: 30, spd: 0, agl: 2 }, { sec: 5, spd: 20, agl: 1 }, { sec: 120, spd: 35, agl: (k) => 3 + k * 2, altAcc: 40 }]);
-  assert.equal(firstTakeoff(badAcc), null);
+  assert.equal(firstTakeoff(abort), null);
+  // 止まっているのに GPS の速度が 2 秒だけ跳ねる
+  const spike = track([{ sec: 60, spd: 0, agl: 1 }, { sec: 2, spd: 60, agl: 1 }, { sec: 60, spd: 0, agl: 1 }]);
+  assert.equal(firstTakeoff(spike), null);
+  // 位置の精度が悪い時は判定しない
+  const fx = track([{ sec: 30, spd: 0, agl: 2 }, { sec: 120, spd: 35, agl: null }]);
+  for (const f of fx) f.acc = 40;
+  assert.equal(firstTakeoff(fx), null);
 });
 
 test('landing is detected after 90 seconds standing still on the ground', () => {

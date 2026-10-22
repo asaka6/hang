@@ -614,43 +614,26 @@ export function analyzeFlight(fixes) {
 const KMH = 1 / 3.6;
 const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
 
-// 離陸: 地上で止まっていた → 1 分以内に対地 25m 以上が 15 秒続く（ずっと動いていて、高さの精度が良い）。
-// 車は道路の上（対地 ほぼ 0）を走るので条件を満たさない。地形データが無い時は判定しない。
-// 戻り値: 離陸した時刻（止まっていた場所を出た時）または null
+// 離陸: 直近 10 秒のうち 8 割以上が時速 15km 以上、中央値が時速 20km 以上（歩く・助走を途中でやめる・GPS が一瞬跳ねる、では当てはまらない）。
+// 位置の精度が悪い時は判定しない。車の中では「計器をスタート」しない前提（車の速さでは離陸と判定される）。
+// 戻り値: 離陸した時刻（止まっていた場所を出た時。止まっていなければ 10 秒前）または null
 export function detectTakeoff(fixes) {
   const n = fixes.length;
-  if (n < 12) return null;
+  if (n < 8) return null;
   const tEnd = fixes[n - 1].t;
-  // 1) 直近 15 秒はずっと空中
   let a = n - 1;
-  while (a > 0 && tEnd - fixes[a - 1].t <= 15000) a--;
-  const air = fixes.slice(a);
-  if (air.length < 10 || tEnd - air[0].t < 13000) return null;
-  for (const f of air) {
-    if (f.agl == null || f.agl < 25) return null;
-    if (f.altAcc != null && f.altAcc > 15) return null;
+  while (a > 0 && tEnd - fixes[a - 1].t <= 10000) a--;
+  const w = fixes.slice(a);
+  if (w.length < 8 || tEnd - w[0].t < 8000) return null;
+  if (w.some((f) => f.acc != null && f.acc > 25)) return null;
+  const spds = w.map((f) => f.spd ?? 0);
+  if (spds.filter((v) => v >= 15 * KMH).length < spds.length * 0.8) return null;
+  if (median(spds) < 20 * KMH) return null;
+  // 止まっていた場所を出た時までさかのぼる（1 分以内）
+  for (let i = n - 1; i >= 0 && tEnd - fixes[i].t <= 70000; i--) {
+    if ((fixes[i].spd ?? 0) < 5 * KMH) return fixes[i + 1].t;
   }
-  const spds = air.map((f) => f.spd ?? 0);
-  if (median(spds) < 10 * KMH || Math.max(...spds) > 120 * KMH) return null;
-  // 2) その前に地上で止まっていた（対地 15m 未満・時速 5km 未満が 3 点以上続く）
-  let groundEnd = -1, run = 0;
-  for (let i = a - 1; i >= 0; i--) {
-    const f = fixes[i];
-    const onGround = f.agl != null && f.agl < 15 && (f.spd ?? 0) < 5 * KMH;
-    run = onGround ? run + 1 : 0;
-    if (run >= 3) { groundEnd = i + run - 1; break; }
-  }
-  if (groundEnd < 0) return null;
-  // 3) 止まっていた所を出てから 1 分以内に空中へ。地面を離れた時は走れる速さ
-  const leave = fixes[groundEnd + 1];
-  if (!leave || fixes[a].t - leave.t > 60000) return null;
-  for (let i = groundEnd + 1; i < n; i++) {
-    if (fixes[i].agl != null && fixes[i].agl >= 15) {
-      if ((fixes[i].spd ?? 0) > 50 * KMH) return null;
-      break;
-    }
-  }
-  return leave.t;
+  return w[0].t;
 }
 
 // 着陸（その 1）: 90 秒（地形データが無い時は 150 秒）、ほぼ同じ場所（8m 以内）で止まっていて、
