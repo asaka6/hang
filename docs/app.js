@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -110,7 +110,9 @@ function onFix(f) {
   }
   S.fixes.push(f);
   S.prevFixAt = S.fixAt; S.fixAt = performance.now();
-  f.v = C.verticalSpeed(S.fixes, 3) ?? 0; // 軌跡の色分け用
+  // 各点の上昇率（軌跡の色・サーマルのコアの位置に使う）。
+  // 新しい点が来たら、前後がそろった直近 1.5 秒の点を計算し直して、GPS の遅れの分のずれを無くす
+  for (let k = S.fixes.length - 1; k >= 0 && f.t - S.fixes[k].t <= 1500; k--) S.fixes[k].v = C.centeredVario(S.fixes, k) ?? 0;
   detectFlight(f);
   detectThermal(f);
   thermalGuide(f);

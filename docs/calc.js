@@ -65,6 +65,25 @@ export function verticalSpeed(fixes, windowSec = 5) {
   return (n * sta - st * sa) / den;
 }
 
+// i 番目の点の上昇率を、前後 halfMs ずつの高度から求める（遅れなし）。
+// 直近だけで求めると値が約半分の時間だけ遅れ、旋回中はコアの位置が後ろにずれるため。
+// 後ろのデータがまだ無い最新の点では、ある分だけで求める。
+export function centeredVario(fixes, i, halfMs = 1500) {
+  const tc = fixes[i].t;
+  let a = i, b = i;
+  while (a > 0 && tc - fixes[a - 1].t <= halfMs) a--;
+  while (b < fixes.length - 1 && fixes[b + 1].t - tc <= halfMs) b++;
+  let n = 0, st = 0, sa = 0, stt = 0, sta = 0;
+  for (let k = a; k <= b; k++) {
+    const f = fixes[k];
+    if (f.alt == null) continue;
+    const t = (f.t - tc) / 1000;
+    n++; st += t; sa += f.alt; stt += t * t; sta += t * f.alt;
+  }
+  const den = n * stt - st * st;
+  return n < 2 || den === 0 ? null : (n * sta - st * sa) / den;
+}
+
 // 各 fix の対地速度ベクトル（東向き vx, 北向き vy [m/s]）
 export function velocity(f, prev) {
   if (f.spd != null && f.hdg != null && !Number.isNaN(f.hdg) && f.spd >= 0) {
@@ -538,11 +557,8 @@ export function analyzeFlight(fixes) {
     const d = distance(a.lat, a.lon, b.lat, b.lon);
     spd[i] = d / dt;
     if (spd[i] > 2) hdg[i] = bearing(a.lat, a.lon, b.lat, b.lon);
-    // 上昇率: 直近 3 秒の傾き
-    let j = i;
-    while (j > 0 && b.t - fixes[j - 1].t <= 3000) j--;
-    const w = fixes.slice(j, i + 1);
-    v[i] = w.length >= 2 ? verticalSpeed(w, 3) ?? 0 : 0;
+    // 上昇率: 前後 1.5 秒ずつ（後から見るので遅れなしで求められる）
+    v[i] = centeredVario(fixes, i) ?? 0;
   }
   // 旋回: 直近 8 秒で向きが変わった量
   const circling = new Array(n).fill(false);
