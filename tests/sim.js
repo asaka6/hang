@@ -3,12 +3,12 @@ import { fromXY } from '../docs/calc.js';
 
 export function createSim({
   lat0 = 36.3, lon0 = 140.15, alt0 = 600, // 離陸地点（初期値は適当な山）
-  windSpeed = 4, windFrom = 270, airspeed = 11,
+  windSpeed = 4, windFrom = 270, airspeed = 11, hdg0 = 90,
   start = Date.now(),
 } = {}) {
   const wx = windSpeed * Math.sin(((windFrom + 180) * Math.PI) / 180);
   const wy = windSpeed * Math.cos(((windFrom + 180) * Math.PI) / 180);
-  let x = 0, y = 0, alt = alt0, hdg = 90, t = start, phase = 0, phaseT = 0;
+  let x = 0, y = 0, alt = alt0, hdg = hdg0, t = start, phase = 0, phaseT = 0;
   // phase: 0 = 地上待機, 1 = 滑空, 2 = サーマル旋回
   return {
     step(dt = 1) {
@@ -25,7 +25,7 @@ export function createSim({
       } else {
         hdg += 360 / 25 * dt; // 1 周 25 秒
         climb = 2.0;
-        if (phaseT > 75) { phase = 1; phaseT = 0; hdg = 60; }
+        if (phaseT > 75) { phase = 1; phaseT = 0; hdg = hdg0 - 30; }
       }
       const vx = airspeed * Math.sin((hdg * Math.PI) / 180) + wx;
       const vy = airspeed * Math.cos((hdg * Math.PI) / 180) + wy;

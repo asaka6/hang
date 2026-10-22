@@ -607,3 +607,76 @@ export function analyzeFlight(fixes) {
     },
   };
 }
+
+// ---- 離陸・着陸の判定（誤検知しないことを最優先） ----
+// 点には { t, lat, lon, alt, spd, agl, altAcc } を入れておく。agl は対地高度（地形データが無ければ null）
+
+const KMH = 1 / 3.6;
+const median = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+
+// 離陸: 地上で止まっていた → 1 分以内に対地 25m 以上が 15 秒続く（ずっと動いていて、高さの精度が良い）。
+// 車は道路の上（対地 ほぼ 0）を走るので条件を満たさない。地形データが無い時は判定しない。
+// 戻り値: 離陸した時刻（止まっていた場所を出た時）または null
+export function detectTakeoff(fixes) {
+  const n = fixes.length;
+  if (n < 12) return null;
+  const tEnd = fixes[n - 1].t;
+  // 1) 直近 15 秒はずっと空中
+  let a = n - 1;
+  while (a > 0 && tEnd - fixes[a - 1].t <= 15000) a--;
+  const air = fixes.slice(a);
+  if (air.length < 10 || tEnd - air[0].t < 13000) return null;
+  for (const f of air) {
+    if (f.agl == null || f.agl < 25) return null;
+    if (f.altAcc != null && f.altAcc > 15) return null;
+  }
+  const spds = air.map((f) => f.spd ?? 0);
+  if (median(spds) < 10 * KMH || Math.max(...spds) > 120 * KMH) return null;
+  // 2) その前に地上で止まっていた（対地 15m 未満・時速 5km 未満が 3 点以上続く）
+  let groundEnd = -1, run = 0;
+  for (let i = a - 1; i >= 0; i--) {
+    const f = fixes[i];
+    const onGround = f.agl != null && f.agl < 15 && (f.spd ?? 0) < 5 * KMH;
+    run = onGround ? run + 1 : 0;
+    if (run >= 3) { groundEnd = i + run - 1; break; }
+  }
+  if (groundEnd < 0) return null;
+  // 3) 止まっていた所を出てから 1 分以内に空中へ。地面を離れた時は走れる速さ
+  const leave = fixes[groundEnd + 1];
+  if (!leave || fixes[a].t - leave.t > 60000) return null;
+  for (let i = groundEnd + 1; i < n; i++) {
+    if (fixes[i].agl != null && fixes[i].agl >= 15) {
+      if ((fixes[i].spd ?? 0) > 50 * KMH) return null;
+      break;
+    }
+  }
+  return leave.t;
+}
+
+// 着陸: 90 秒（地形データが無い時は 150 秒）、ほぼ同じ場所（8m 以内）で止まっていて、
+// 高さもほとんど変わらず、対地 15m 未満。風の中で浮いて止まっている時は高さが揺れ、場所も流れるので当てはまらない。
+// 戻り値: 止まり始めた時刻または null
+export function detectLanding(fixes, hasTerrain) {
+  const n = fixes.length;
+  if (!n) return null;
+  const span = hasTerrain ? 90000 : 150000;
+  const tEnd = fixes[n - 1].t;
+  let a = n - 1;
+  while (a > 0 && tEnd - fixes[a - 1].t <= span) a--;
+  const w = fixes.slice(a);
+  if (tEnd - w[0].t < span - 2000 || w.length < (span / 1000) * 0.6) return null;
+  const lat = w.reduce((s, f) => s + f.lat, 0) / w.length, lon = w.reduce((s, f) => s + f.lon, 0) / w.length;
+  // 9 割の点が中心から 8m 以内（GPS がたまに跳ねても良いように）
+  const dev = w.map((f) => distance(lat, lon, f.lat, f.lon)).sort((x, y) => x - y);
+  if (dev[Math.floor(dev.length * 0.9)] > 8) return null;
+  if (median(w.map((f) => f.spd ?? 0)) > 3 * KMH) return null;
+  const alts = w.map((f) => f.alt).filter((x) => x != null);
+  const mean = alts.reduce((s, x) => s + x, 0) / Math.max(1, alts.length);
+  const sd = Math.sqrt(alts.reduce((s, x) => s + (x - mean) ** 2, 0) / Math.max(1, alts.length));
+  if (sd > 2.5) return null;
+  if (hasTerrain) {
+    const agl = w.map((f) => f.agl).filter((x) => x != null);
+    if (agl.length < w.length * 0.6 || median(agl) > 15) return null;
+  }
+  return w[0].t;
+}

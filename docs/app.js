@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -51,7 +51,7 @@ const db = (() => {
 
 const DEFAULTS = {
   pilot: '', glider: '', bestLD: 7.5, trimKmh: 35, margin: 100,
-  altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30, autoStartKmh: 15,
+  altOffset: 0, theme: 'day', varioWindow: 5, ldWindow: 30,
   mapWidth: 3000, trackUp: true, windUnit: 'ms', mapLayer: 'simple', saveRadiusKm: 10, voice: 'on',
   voiceGlide: true, thermalGuide: true, voiceThermal: true,
 };
@@ -68,7 +68,6 @@ const S = {
   running: false,
   fixes: [],
   flightStart: null, flightEnd: null, takeoff: null,
-  fastCount: 0, slowSince: null,
   wind: null, windT: 0,
   circling: false, circleStart: null, thermals: [],
   lastThermal: null, lastGain: null, thermalEnd: 0,
@@ -89,7 +88,7 @@ function onPosition(p) {
   onFix({
     t: p.timestamp || Date.now(),
     lat: c.latitude, lon: c.longitude,
-    alt: c.altitude, acc: c.accuracy,
+    alt: c.altitude, acc: c.accuracy, altAcc: c.altitudeAccuracy != null && c.altitudeAccuracy >= 0 ? c.altitudeAccuracy : null,
     spd: c.speed != null && c.speed >= 0 ? c.speed : null,
     hdg: c.heading != null && c.heading >= 0 && !Number.isNaN(c.heading) ? c.heading : null,
   });
@@ -128,32 +127,40 @@ function onFix(f) {
   render();
 }
 
+// 離陸・着陸の判定（誤検知しないことを最優先。中身は calc.js の detectTakeoff / detectLanding）
 function detectFlight(f) {
-  const kmh = (f.spd || 0) * 3.6;
+  // 対地高度（国土地理院の標高データ）。データが無い場所では null
+  const ground = G.elevation(f.lat, f.lon);
+  f.agl = ground != null && f.alt != null ? alt(f) - ground : null;
   if (S.flightStart == null) {
-    S.fastCount = kmh > settings.autoStartKmh ? S.fastCount + 1 : 0;
-    if (S.fastCount >= 5) {
-      const w = C.recent(S.fixes, 10);
-      S.flightStart = w[0].t;
-      S.takeoff = { lat: w[0].lat, lon: w[0].lon, alt: w[0].alt };
-      S.flightEnd = null;
-      onTakeoff();
-    }
+    const t = C.detectTakeoff(C.recent(S.fixes, 240));
+    if (t != null) startFlight(t);
     return;
   }
   if (S.flightEnd != null) return;
-  const vs = Math.abs(C.verticalSpeed(S.fixes, 10) ?? 0);
-  if (kmh < 4 && vs < 0.3) {
-    S.slowSince ??= f.t;
-    if (f.t - S.slowSince > 60000) {
-      S.flightEnd = S.slowSince;
-      saveLog();
-      onLanding();
-    }
-  } else {
-    S.slowSince = null;
+  const w = C.recent(S.fixes, 160);
+  const hasTerrain = w.filter((x) => x.agl != null).length > w.length * 0.6;
+  const t = C.detectLanding(w, hasTerrain);
+  if (t != null) {
+    S.flightEnd = t;
+    saveLog();
+    onLanding();
   }
 }
+
+function startFlight(t) {
+  const f0 = S.fixes.find((x) => x.t >= t) || last();
+  S.flightStart = f0.t;
+  S.takeoff = { lat: f0.lat, lon: f0.lon, alt: f0.alt };
+  S.flightEnd = null;
+  onTakeoff();
+}
+
+// 地形データが無く自動で判定できない時は、ステータスの「離陸待ち」を押して手動で始める
+$('#rec').addEventListener('click', () => {
+  if (!S.running || S.flightStart != null || !last()) return;
+  if (confirm('今から「飛行中」にして記録を始めますか？\n（地形データが無い場所では自動で離陸を判定しません）')) startFlight(last().t);
+});
 
 function detectThermal(f) {
   const tr = Math.abs(C.turnRate(S.fixes, 8));
@@ -214,7 +221,7 @@ async function stop() {
 function resetFlight() {
   Object.assign(S, {
     fixes: [], flightStart: null, flightEnd: null, takeoff: null,
-    fastCount: 0, slowSince: null, wind: null, windT: 0,
+    wind: null, windT: 0,
     circling: false, circleStart: null, thermals: [], lastThermal: null, lastGain: null, thermalEnd: 0,
     lowWarnT: 0, lowWarned: false, turnWarnT: 0, guideT: 0, guideSpokenT: 0, guideSpoken: null, thermalTarget: null, dirty: true,
   });
@@ -346,7 +353,12 @@ function render() {
   const rec = $('#rec');
   if (S.flightStart != null && S.flightEnd == null) { rec.textContent = '● 飛行中'; rec.className = 'badge rec'; }
   else if (S.flightEnd != null) { rec.textContent = '着陸'; rec.className = 'badge ok'; }
-  else { rec.textContent = '離陸待ち'; rec.className = 'badge'; }
+  else {
+    // 地形データが取れていない時は自動判定しないので、押して始められることを示す
+    const noTerrain = S.fixes.length > 10 && C.recent(S.fixes, 10).every((x) => x.agl == null);
+    rec.textContent = noTerrain ? '離陸待ち（押して開始）' : '離陸待ち';
+    rec.className = noTerrain ? 'badge warn' : 'badge';
+  }
   if (S.flightStart != null) {
     const sec = Math.floor(((S.flightEnd ?? f.t) - S.flightStart) / 1000);
     setText('ftime', `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, '0')}`);
