@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.5.0';
+const VERSION = '2.6.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -132,10 +132,9 @@ function detectFlight(f) {
   // 対地高度（国土地理院の標高データ）。データが無い場所では null
   const ground = G.elevation(f.lat, f.lon);
   f.agl = ground != null && f.alt != null ? alt(f) - ground : null;
-  if (S.flightStart == null || S.flightEnd != null) {
-    // 離陸待ち、または着陸後（同じ日の 2 本目も記録できるよう、着陸より後の点だけで判定）
-    const after = C.recent(S.fixes, 240).filter((x) => S.flightEnd == null || x.t > S.flightEnd);
-    const t = C.detectTakeoff(after);
+  if (S.flightEnd != null) return; // 着陸した（1 本ごとに計器を止める）
+  if (S.flightStart == null) {
+    const t = C.detectTakeoff(C.recent(S.fixes, 240));
     if (t != null) startFlight(t);
     return;
   }
@@ -146,19 +145,16 @@ function detectFlight(f) {
   if (t != null) endFlight(t);
 }
 
-function endFlight(t) {
+// 着陸: 結果を出して保存し、計器を止める（フライトは 1 本ごと。次はもう一度「計器をスタート」）
+async function endFlight(t) {
   S.flightEnd = t;
-  saveLog();
   onLanding();
+  await saveLog();
+  await stopInstrument();
 }
 
 function startFlight(t) {
   const f0 = S.fixes.find((x) => x.t >= t) || last();
-  if (S.flightEnd != null) {
-    // 2 本目: 前のフライトのサーマルなどを片付ける（風はそのまま使う）
-    Object.assign(S, { thermals: [], lastThermal: null, lastGain: null, circling: false, circleStart: null,
-      thermalEnd: 0, lowWarned: false, lowWarnT: 0, turnWarnT: 0, guideSpoken: null, thermalTarget: null });
-  }
   S.flightStart = f0.t;
   S.takeoff = { lat: f0.lat, lon: f0.lon, alt: f0.alt };
   S.flightEnd = null;
@@ -213,12 +209,17 @@ async function start() {
 }
 
 async function stop() {
-  if (S.watchId != null) navigator.geolocation.clearWatch(S.watchId);
-  S.watchId = null;
   if (S.flightStart != null && S.flightEnd == null) {
     S.flightEnd = last().t;
     await saveLog();
   }
+  await stopInstrument();
+}
+
+// GPS を止めてスタート画面に戻す（着陸の結果画面はその上に出ている）
+async function stopInstrument() {
+  if (S.watchId != null) navigator.geolocation.clearWatch(S.watchId);
+  S.watchId = null;
   await db.del('kv', 'current').catch(() => {});
   S.running = false;
   lockScreen(false);
@@ -1611,6 +1612,8 @@ function showPage(name) {
   $$('#tabs button').forEach((b) => b.classList.toggle('active', b.dataset.page === name));
   if (name === 'wp') renderWaypoints();
   if (name === 'log') renderLogs();
+  // 計器が止まっている時に「計器」タブを押したらスタート画面に戻す（WP・ログ・設定はそのまま見られる）
+  if (!S.running && name === 'main') $('#start').classList.remove('hidden');
   if (name === 'set') renderMapInfo();
   S.dirty = true;
 }
@@ -1653,6 +1656,9 @@ function unlockAudio() {
   }
 }
 $('#start-btn').addEventListener('click', () => { unlockAudio(); start(); });
+// 計器を動かさずにログだけ見る（着陸後など）。戻る時はスタート画面に
+$('#start-logs').addEventListener('click', () => { $('#start').classList.add('hidden'); showPage('log'); });
+
 
 // ---------- 起動 ----------
 

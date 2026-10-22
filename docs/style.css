@@ -206,3 +206,6 @@ label.check input { flex: 0 0 auto; width: 22px; height: 22px; margin: 2px 4px 0
 /* 手動の着陸ボタン: ロックを外した飛行中だけ出す */
 #land-btn { display: none; position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; padding: 14px 28px; font-size: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }
 body.flying:not(.locked) #land-btn { display: block; }
+
+/* 着陸の結果・確認は、後ろに出るスタート画面より手前に */
+#landed, #land-ask { z-index: 15; }
