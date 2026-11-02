@@ -696,3 +696,156 @@ export function landingTime(fixes) {
   }
   return fixes.length ? fixes[0].t : null;
 }
+
+// ---- フライト日誌: IGC の読み込み ----
+
+// IGC → { fixes: [{ t, lat, lon, alt }], pilot, glider, date }
+// 高度は GPS 高度（無ければ気圧高度）
+export function parseIGC(text) {
+  let base = null, pilot = '', glider = '', lastT = null, dayAdd = 0;
+  const fixes = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    let m;
+    if ((m = /^HFDTE(?:DATE:)?(\d\d)(\d\d)(\d\d)/.exec(line))) base = Date.UTC(2000 + +m[3], +m[2] - 1, +m[1]);
+    else if ((m = /^HFPLT[^:]*:(.*)$/.exec(line))) pilot = m[1].trim();
+    else if ((m = /^HFGTY[^:]*:(.*)$/.exec(line))) glider = m[1].trim();
+    else if ((m = /^B(\d\d)(\d\d)(\d\d)(\d\d)(\d{5})([NS])(\d{3})(\d{5})([EW])([AV])([-\d]\d{4})([-\d]\d{4})/.exec(line))) {
+      if (base == null) continue;
+      let t = base + ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * 1000 + dayAdd;
+      if (lastT != null && t < lastT - 3600000) { dayAdd += 86400000; t += 86400000; } // 日付をまたいだ
+      lastT = t;
+      let lat = +m[4] + +m[5] / 60000, lon = +m[7] + +m[8] / 60000;
+      if (m[6] === 'S') lat = -lat;
+      if (m[9] === 'W') lon = -lon;
+      const pAlt = +m[11], gAlt = +m[12];
+      fixes.push({ t, lat, lon, alt: gAlt !== 0 ? gAlt : pAlt });
+    }
+  }
+  return { fixes, pilot, glider, date: base };
+}
+
+// 位置から速さを付けて、離陸の前と着陸の後（準備や片付けで歩いた分）を切る。
+// 離陸 = 10 秒のうち 8 割が時速 15km 以上になった所、着陸 = 最後にそうだった所の後で歩く速さ未満になった所
+export function trimFlight(fixes) {
+  const n = fixes.length;
+  if (n < 20) return fixes;
+  const spd = fixes.map((f, i) => (i ? distance(fixes[i - 1].lat, fixes[i - 1].lon, f.lat, f.lon) / Math.max(1, (f.t - fixes[i - 1].t) / 1000) : 0));
+  const fast = (i) => {
+    let c = 0, k = 0;
+    for (let j = i; j < n && fixes[j].t - fixes[i].t < 10000; j++, k++) if (spd[j] >= 15 * KMH) c++;
+    return k >= 5 && c >= k * 0.8;
+  };
+  let a = 0;
+  while (a < n && !fast(a)) a++;
+  if (a >= n) return fixes;
+  let b = n - 1;
+  while (b > a && !(spd[b] >= 15 * KMH)) b--;
+  while (b < n - 1 && spd[b + 1] >= 7 * KMH) b++;
+  // 走り出した所まで少し戻す（助走）
+  while (a > 0 && spd[a - 1] >= 5 * KMH) a--;
+  return fixes.slice(a, Math.min(n, b + 2));
+}
+
+// ---- 着陸の振り返り（ダウンウィンド・ベース・ファイナル） ----
+// fixes: フライトの点（最後が着地）。agl(f) は対地高度（分からなければ null）。ld: 目標の着陸地 { lat, lon }
+// 戻り値: { legs: [{ type, from, to, length, sec, aglStart }], finalHdg, side, touchdown, toLd, hints }
+export function analyzeApproach(fixes, agl = () => null, ld = null) {
+  const n = fixes.length;
+  if (n < 20) return null;
+  const end = n - 1;
+  // 各点の進行方向（前後 2 秒）
+  const hdg = fixes.map((f, i) => {
+    const a = fixes[Math.max(0, i - 2)], b = fixes[Math.min(n - 1, i + 2)];
+    return distance(a.lat, a.lon, b.lat, b.lon) > 8 ? bearing(a.lat, a.lon, b.lat, b.lon) : null;
+  });
+  // ファイナルの向き = 着地前 2〜8 秒の平均の向き（短いファイナルでもベースと混ざらないように）
+  let sx = 0, sy = 0;
+  for (let i = end; i >= 0 && fixes[end].t - fixes[i].t <= 8000; i--) {
+    if (fixes[end].t - fixes[i].t < 2000 || hdg[i] == null) continue;
+    sx += Math.sin(rad(hdg[i])); sy += Math.cos(rad(hdg[i]));
+  }
+  if (!sx && !sy) return null;
+  const finalHdg = norm360(deg(Math.atan2(sx, sy)));
+  const kind = (i) => {
+    if (hdg[i] == null) return null;
+    const r = Math.abs(norm180(hdg[i] - finalHdg));
+    return r < 40 ? 'final' : r > 140 ? 'downwind' : r >= 50 && r <= 130 ? 'base' : null;
+  };
+  // 着地から後ろへ、ファイナル → ベース → ダウンウィンドの順に区間を探す（向きが中途半端な点は前の区間に含める）
+  const legs = [];
+  let i = end, side = null;
+  const order = ['final', 'base', 'downwind'];
+  for (const type of order) {
+    const to = i;
+    let k = i, seen = false, lost = 0;
+    while (k > 0 && fixes[end].t - fixes[k].t < 300000) {
+      const kd = kind(k);
+      if (kd === type) { seen = true; lost = 0; }
+      else if (kd != null && order.indexOf(kd) < order.indexOf(type)) break; // 前の区間の向きに戻った（旋回）
+      else if (kd != null && kd !== type) { if (seen) break; }
+      else if (++lost > 6 && seen) break;
+      // ベースからファイナルへ左に曲がった = 左回りのパターン
+      if (type === 'base' && kd === 'base' && side == null) side = norm180(hdg[k] - finalHdg) > 0 ? 'left' : 'right';
+      k--;
+    }
+    if (!seen) break;
+    // 区間の始まり = その向きの最初の点
+    let from = k + 1;
+    while (from < to && kind(from) !== type) from++;
+    let length = 0;
+    for (let j = from + 1; j <= to; j++) length += distance(fixes[j - 1].lat, fixes[j - 1].lon, fixes[j].lat, fixes[j].lon);
+    legs.unshift({ type, from, to, length, sec: (fixes[to].t - fixes[from].t) / 1000, aglStart: agl(fixes[from]) });
+    i = from - 1;
+    if (i <= 0) break;
+  }
+  const td = fixes[end];
+  const toLd = ld ? distance(td.lat, td.lon, ld.lat, ld.lon) : null;
+  const final = legs.find((l) => l.type === 'final');
+  const hints = [];
+  if (!legs.some((l) => l.type === 'downwind')) hints.push('ダウンウィンドが見つかりません（S 字や 8 の字で降りた、または旋回が少ない）');
+  if (final && final.length < 100) hints.push(`ファイナルが短め（${Math.round(final.length)}m）`);
+  if (final && final.aglStart != null && final.aglStart > 120) hints.push(`ファイナルに入った時の高さが高め（対地 ${Math.round(final.aglStart)}m）`);
+  if (final && final.aglStart != null && final.aglStart < 25) hints.push(`ファイナルに入った時の高さが低め（対地 ${Math.round(final.aglStart)}m）`);
+  if (toLd != null && toLd > 80) hints.push(`目標のランディングから ${Math.round(toLd)}m の所に降りました`);
+  return { legs, finalHdg, side, touchdown: td, toLd, hints };
+}
+
+// ---- フライト日誌の集計 ----
+// logs: [{ start, end, place, glider }]
+export function logbookStats(logs, now = Date.now()) {
+  const year = new Date(now).getFullYear();
+  const sum = (arr) => arr.reduce((s, l) => s + Math.max(0, (l.end - l.start) / 1000), 0);
+  const group = (key) => {
+    const m = new Map();
+    for (const l of logs) {
+      const k = l[key] || '不明';
+      const g = m.get(k) || { name: k, count: 0, sec: 0 };
+      g.count++; g.sec += Math.max(0, (l.end - l.start) / 1000);
+      m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count);
+  };
+  const thisYear = logs.filter((l) => new Date(l.start).getFullYear() === year);
+  return {
+    count: logs.length, sec: sum(logs),
+    yearCount: thisYear.length, yearSec: sum(thisYear),
+    byPlace: group('place'), byGlider: group('glider'),
+    longest: logs.reduce((a, b) => (!a || b.end - b.start > a.end - a.start ? b : a), null),
+  };
+}
+
+// CSV（Excel で開ける。日本語が化けないよう先頭に BOM）
+export function logbookCSV(logs) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const ymd = (t) => { const d = new Date(t); return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`; };
+  const hm = (t) => { const d = new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const dur = (s) => `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(Math.floor(s % 60))}`;
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [['No', '日付', '場所', '機体', '離陸', '着陸', '滞空時間', '最高高度(m)', '距離(km)', 'メモ']];
+  logs.slice().sort((a, b) => a.start - b.start).forEach((l, i) => rows.push([
+    i + 1, ymd(l.start), l.place || '', l.glider || '', hm(l.start), hm(l.end), dur((l.end - l.start) / 1000),
+    Math.round(l.maxAlt ?? 0), ((l.dist ?? 0) / 1000).toFixed(1), l.memo || '',
+  ]));
+  return '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n') + '\r\n';
+}

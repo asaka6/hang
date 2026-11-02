@@ -209,3 +209,13 @@ body.flying:not(.locked) #land-btn { display: block; }
 
 /* 着陸の結果・確認は、後ろに出るスタート画面より手前に */
 #landed, #land-ask { z-index: 15; }
+
+/* フライト日誌・着陸の振り返り */
+#lv-approach { height: 320px; width: 100%; flex: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.lv-form { padding: 0 12px; }
+.lv-form label { margin: 6px 0; }
+.lv-form label.memo { flex-direction: column; align-items: stretch; }
+.lv-form textarea { font: inherit; font-size: 16px; padding: 8px; border-radius: 8px; border: 2px solid var(--line); background: var(--bg); color: var(--fg); width: 100%; -webkit-user-select: text; user-select: text; }
+.lv-form input { -webkit-user-select: text; user-select: text; }
+.hints { margin: 6px 12px; padding-left: 20px; font-size: 16px; font-weight: 700; color: #b36b00; }
+#lb-stats { font-size: 16px; margin-bottom: 4px; }

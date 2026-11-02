@@ -94,8 +94,13 @@
 
   <!-- ログ -->
   <section id="page-log" class="page scroll">
-    <h2>フライトログ</h2>
-    <p class="hint">フライトを押すと、地図・高度グラフ・サーマルなどを詳しく見られます。「IGC」で書き出して XContest にアップロードもできます。</p>
+    <h2>フライト日誌</h2>
+    <ul class="summary" id="lb-stats"></ul>
+    <div class="row">
+      <label class="btn">XCTrack などの IGC を読み込む<input type="file" id="lb-import" multiple hidden></label>
+      <button id="lb-csv">表で書き出す（CSV）</button>
+    </div>
+    <p class="hint">フライトを押すと、地図・高度グラフ・サーマル・<b>着陸の振り返り</b>を見られます。場所・機体・メモも書けます。「IGC」で書き出して XContest にアップロードもできます。</p>
     <ul id="log-list" class="list"></ul>
   </section>
 
@@ -199,6 +204,17 @@
       <button id="lv-fit">全体を表示</button>
     </div>
     <ul class="summary" id="lv-stats"></ul>
+    <h3 class="lv-h">日誌</h3>
+    <div class="lv-form">
+      <label>場所 <input id="lv-place" placeholder="例: 獅子吼"></label>
+      <label>機体 <input id="lv-glider"></label>
+      <label class="memo">メモ <textarea id="lv-memo" rows="3" placeholder="例: 南西 3m/s、2 本目、ファイナルで高度が余った"></textarea></label>
+    </div>
+    <h3 class="lv-h">着陸の振り返り</h3>
+    <canvas id="lv-approach"></canvas>
+    <ul class="summary" id="lv-appr"></ul>
+    <ul class="hints" id="lv-hints"></ul>
+    <p class="hint">ダウンウィンド（青）→ ベース（橙）→ ファイナル（赤）。数字は区間に入った時の対地高度。目安なので、進入の良し悪しはインストラクターに確認してください。</p>
     <h3 class="lv-h">サーマル</h3>
     <ul class="list" id="lv-thermals"></ul>
   </div>

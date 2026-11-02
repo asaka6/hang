@@ -2,7 +2,7 @@ import * as C from './calc.js';
 import * as T from './tiles.js';
 import * as G from './terrain.js';
 
-const VERSION = '2.8.0';
+const VERSION = '2.9.0';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
@@ -269,7 +269,7 @@ async function saveLog() {
   const slim = fixes.map(({ t, lat, lon, alt: a }) => ({ t, lat, lon, alt: a }));
   await db.put('logs', {
     id: S.flightStart, start: S.flightStart, end: S.flightEnd, dist, maxAlt, altOffset: settings.altOffset,
-    pilot: settings.pilot, glider: settings.glider, fixes: slim,
+    pilot: settings.pilot, glider: settings.glider, place: placeName(fixes[0]), fixes: slim,
   });
   renderLogs();
 }
@@ -309,6 +309,10 @@ function updateGpsBadge(acc, msg) {
   e.textContent = msg ? `GPS ${msg}` : acc == null ? 'GPS --' : `GPS ±${Math.round(acc)}m`;
 }
 
+// 標高データが読めた時の描き直し（同じ関数を渡すので、読み込み中に何度頼んでも 1 回だけ呼ばれる）
+const rerender = () => render();
+const redrawLogGraph = () => drawLogGraph();
+
 function render() {
   const f = last();
   if (!f) return;
@@ -319,7 +323,7 @@ function render() {
 
   setText('v-alt', fmt(a));
   // 対地高度（国土地理院の標高データ）。取れない場所は離陸地点からの高さ
-  const ground = G.elevation(f.lat, f.lon, () => { render(); });
+  const ground = G.elevation(f.lat, f.lon, rerender);
   if (ground != null) { setText('agl-label', '対地高度'); setText('v-agl', fmt(a - ground)); }
   else { setText('agl-label', '離陸比'); setText('v-agl', S.takeoff ? signed(f.alt - S.takeoff.alt, 0) : '--'); }
   setText('v-spd', fmt(gt && gt.spd * 3.6));
@@ -1269,22 +1273,50 @@ $('#wp-clear').addEventListener('click', () => {
 
 // ---------- ログ ----------
 
+// フライトの場所: 離陸地点に一番近いテイクオフ（3km 以内）。無ければ近くのウェイポイントの名前
+function placeName(f) {
+  if (!f) return '';
+  let best = null, bd = Infinity;
+  for (const w of waypoints) {
+    const d = C.distance(f.lat, f.lon, w.lat, w.lon) * (w.kind === 'takeoff' ? 0.5 : 1);
+    if (d < bd) { bd = d; best = w; }
+  }
+  if (!best || bd > 3000) return '';
+  // 獅子吼・つくばね など、テイクオフの名前からエリア名にする
+  if (/獅子吼|SHISHIKU/i.test(best.name) || C.distance(f.lat, f.lon, 36.4465, 136.6475) < 3000) return '獅子吼';
+  if (/つくばね|TSUKUBANE/i.test(best.name)) return 'つくばね';
+  return best.name;
+}
+
+const fmtDur = (sec) => `${Math.floor(sec / 3600)}時間${Math.floor(sec / 60) % 60}分`;
+
 async function renderLogs() {
   const logs = (await db.all('logs').catch(() => [])).sort((a, b) => b.start - a.start);
+  // 日誌の集計
+  const st = C.logbookStats(logs);
+  const rows = [
+    ['合計', `${st.count} 本 ・ ${fmtDur(st.sec)}`],
+    [`${new Date().getFullYear()} 年`, `${st.yearCount} 本 ・ ${fmtDur(st.yearSec)}`],
+    ...st.byPlace.slice(0, 4).map((p) => [`場所: ${p.name}`, `${p.count} 本 ・ ${fmtDur(p.sec)}`]),
+    ...st.byGlider.slice(0, 3).map((g) => [`機体: ${g.name}`, `${g.count} 本`]),
+  ];
+  if (st.longest) rows.push(['一番長いフライト', fmtDur((st.longest.end - st.longest.start) / 1000)]);
+  $('#lb-stats').innerHTML = logs.length ? rows.map(() => '<li><span></span><b></b></li>').join('') : '';
+  [...$('#lb-stats').children].forEach((li, i) => { li.querySelector('span').textContent = rows[i][0]; li.querySelector('b').textContent = rows[i][1]; });
   const ul = $('#log-list');
   ul.innerHTML = '';
   if (!logs.length) ul.innerHTML = '<li class="hint">まだありません。離陸すると自動で記録が始まり、着陸後に保存されます。</li>';
   for (const lg of logs) {
     const d = new Date(lg.start);
-    const min = Math.round((lg.end - lg.start) / 60000);
+    const min = Math.floor((lg.end - lg.start) / 60000);
     const li = document.createElement('li');
     li.innerHTML = `<div class="grow"><div class="name"></div><div class="meta"></div></div>
       <button class="small" data-act="igc">IGC</button>
       <button class="small danger" data-act="del">削除</button>`;
     li.querySelector('.name').textContent =
-      `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+      `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` + (lg.place ? ` ${lg.place}` : '');
     li.querySelector('.meta').textContent =
-      `${Math.floor(min / 60)}時間${min % 60}分 ・ 最高 ${Math.round(lg.maxAlt)} m ・ 移動 ${(lg.dist / 1000).toFixed(1)} km`;
+      `${Math.floor(min / 60)}時間${min % 60}分 ・ 最高 ${Math.round(lg.maxAlt)} m` + (lg.glider ? ` ・ ${lg.glider}` : '') + (lg.memo ? ` ・ ${lg.memo.split('\n')[0]}` : '');
     li.addEventListener('click', async (e) => {
       const act = e.target.dataset.act;
       if (act === 'igc') exportIGC(lg);
@@ -1294,6 +1326,46 @@ async function renderLogs() {
     ul.appendChild(li);
   }
 }
+
+// XCTrack などの IGC を日誌に入れる（離陸前・着陸後の歩いた分は切る。同じフライトは入れない）
+$('#lb-import').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  const have = new Set((await db.all('logs').catch(() => [])).map((l) => l.id));
+  let added = 0, skipped = 0;
+  for (const file of files) {
+    try {
+      const r = C.parseIGC(await file.text());
+      if (r.fixes.length < 20) throw new Error('点が少なすぎます');
+      const fx = C.trimFlight(r.fixes);
+      const start = fx[0].t, end = fx[fx.length - 1].t;
+      if (have.has(start)) { skipped++; continue; }
+      let dist = 0, maxAlt = -Infinity;
+      fx.forEach((f, i) => { if (i) dist += C.distance(fx[i - 1].lat, fx[i - 1].lon, f.lat, f.lon); maxAlt = Math.max(maxAlt, f.alt ?? -Infinity); });
+      await db.put('logs', {
+        id: start, start, end, dist, maxAlt, altOffset: 0, pilot: r.pilot, glider: r.glider || settings.glider,
+        place: placeName(fx[0]), fixes: fx, source: file.name,
+      });
+      have.add(start); added++;
+    } catch (err) {
+      alert(`${file.name}: 読み込めませんでした（${err.message}）`);
+    }
+  }
+  renderLogs();
+  if (added || skipped) alert(`${added} 本を日誌に入れました` + (skipped ? `（${skipped} 本はもう入っていました）` : ''));
+});
+
+$('#lb-csv').addEventListener('click', async () => {
+  const logs = await db.all('logs').catch(() => []);
+  if (!logs.length) return alert('まだフライトがありません');
+  const file = new File([C.logbookCSV(logs)], `flight-log-${new Date().toISOString().slice(0, 10)}.csv`, { type: 'text/csv' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: file.name }); return; } catch (err) { if (err.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
 
 // ---------- ログを詳しく見る ----------
 
@@ -1311,9 +1383,126 @@ function openLog(lg) {
   const d = new Date(lg.start);
   setText('lv-title', `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`);
   renderLogStats();
+  $('#lv-place').value = lg.place || '';
+  $('#lv-glider').value = lg.glider || '';
+  $('#lv-memo').value = lg.memo || '';
   $('#log-view').classList.remove('hidden');
   stopPlay();
-  requestAnimationFrame(() => { drawLogMap(); drawLogGraph(); showReadout(); });
+  requestAnimationFrame(() => { drawLogMap(); drawLogGraph(); showReadout(); renderApproach(); });
+}
+
+// 日誌欄の書き換えはその場で保存
+for (const [id, key] of [['lv-place', 'place'], ['lv-glider', 'glider'], ['lv-memo', 'memo']]) {
+  $('#' + id).addEventListener('change', async () => {
+    if (!LV.lg) return;
+    const logId = LV.lg.id, value = $('#' + id).value.trim();
+    const lg = (await db.all('logs').catch(() => [])).find((x) => x.id === logId);
+    if (!lg) return;
+    lg[key] = value;
+    if (LV.lg && LV.lg.id === logId) LV.lg[key] = value;
+    await db.put('logs', lg);
+    renderLogs();
+  });
+}
+
+// ---- 着陸の振り返り ----
+const LEG = { downwind: { name: 'ダウンウィンド', color: '#2f6fe0' }, base: { name: 'ベース', color: '#f08a00' }, final: { name: 'ファイナル', color: '#e00000' } };
+
+function approachData() {
+  const fx = LV.lg.fixes.filter((f) => f.t <= LV.lg.end);
+  const tail = fx.slice(Math.max(0, fx.length - 400));
+  const agl = (f) => { const g = G.elevation(f.lat, f.lon, redrawApproachSoon); return g != null && f.alt != null ? f.alt - g : null; };
+  // 目標の着陸地: 着地点に一番近い着陸地（2km 以内）
+  const td = tail[tail.length - 1];
+  let ld = null, bd = 2000;
+  for (const w of waypoints) if (w.landing) { const d = C.distance(td.lat, td.lon, w.lat, w.lon); if (d < bd) { bd = d; ld = w; } }
+  return { tail, ld, a: C.analyzeApproach(tail, agl, ld) };
+}
+
+// 標高データが読めたら描き直す（まとめて 1 回）
+let approachTimer = null;
+function redrawApproachSoon() {
+  clearTimeout(approachTimer);
+  approachTimer = setTimeout(() => { if (LV.lg) renderApproach(); }, 300);
+}
+
+function renderApproach() {
+  if (!LV.lg) return;
+  const { tail, ld, a } = approachData();
+  const c = $('#lv-approach');
+  const { ctx, w, h, dpr } = fitCanvas(c);
+  const css = getComputedStyle(document.body);
+  const fg = css.getPropertyValue('--fg'), bg = css.getPropertyValue('--bg');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  if (!a || !a.legs.length) {
+    ctx.fillStyle = fg; ctx.font = '15px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('着陸の進入を読み取れませんでした', w / 2, h / 2); ctx.textAlign = 'left';
+    $('#lv-appr').innerHTML = ''; $('#lv-hints').innerHTML = '';
+    return;
+  }
+  // 進入の区間がちょうど入る範囲（北が上）
+  const from = a.legs[0].from;
+  const pts = tail.slice(Math.max(0, from - 10));
+  let n = -90, s = 90, e = -180, ww = 180;
+  for (const f of pts.concat(ld ? [ld] : [])) { n = Math.max(n, f.lat); s = Math.min(s, f.lat); e = Math.max(e, f.lon); ww = Math.min(ww, f.lon); }
+  const ctr = { lat: (n + s) / 2, lon: (e + ww) / 2 };
+  const wM = C.distance(ctr.lat, ww, ctr.lat, e), hM = C.distance(s, ctr.lon, n, ctr.lon);
+  const scale = Math.min(w / Math.max(150, wM * 1.3), h / Math.max(150, hM * 1.3));
+  const P = (lat, lon) => { const p = C.toXY(ctr.lat, ctr.lon, lat, lon); return [w / 2 + p.x * scale, h / 2 - p.y * scale]; };
+  if (settings.mapLayer !== 'none') T.drawTiles(ctx, settings.mapLayer, P, ctr, scale, Math.hypot(w, h) / 2, dpr, settings.theme === 'night');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // 進入の前（灰色）
+  ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#888888';
+  ctx.beginPath();
+  pts.slice(0, from - Math.max(0, from - 10) + 1).forEach((f, i) => { const [x, y] = P(f.lat, f.lon); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+  // 区間ごとに色分け
+  for (const leg of a.legs) {
+    ctx.strokeStyle = LEG[leg.type].color; ctx.lineWidth = 5;
+    ctx.beginPath();
+    for (let i = Math.max(0, leg.from - 1); i <= leg.to; i++) { const [x, y] = P(tail[i].lat, tail[i].lon); i === Math.max(0, leg.from - 1) ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  // 区間に入った所の対地高度
+  ctx.font = 'bold 13px sans-serif';
+  for (const leg of a.legs) {
+    const f = tail[leg.from];
+    const [x, y] = P(f.lat, f.lon);
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fillStyle = LEG[leg.type].color; ctx.fill();
+    ctx.strokeStyle = bg; ctx.lineWidth = 2; ctx.stroke();
+    const t = leg.aglStart != null ? `${Math.round(leg.aglStart)}m` : '';
+    if (t) { ctx.lineWidth = 3; ctx.strokeText(t, x + 8, y - 6); ctx.fillStyle = fg; ctx.fillText(t, x + 8, y - 6); }
+  }
+  // 目標の着陸地と着地点
+  if (ld) {
+    const [x, y] = P(ld.lat, ld.lon);
+    ctx.strokeStyle = '#00a040'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y); ctx.moveTo(x, y - 6); ctx.lineTo(x, y + 6); ctx.stroke();
+    ctx.lineWidth = 3; ctx.strokeStyle = bg; ctx.font = 'bold 12px sans-serif';
+    ctx.strokeText(ld.name, x + 14, y + 16); ctx.fillStyle = '#00803a'; ctx.fillText(ld.name, x + 14, y + 16);
+  }
+  const [tx, ty] = P(a.touchdown.lat, a.touchdown.lon);
+  ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.moveTo(tx - 6, ty - 6); ctx.lineTo(tx + 6, ty + 6); ctx.moveTo(tx + 6, ty - 6); ctx.lineTo(tx - 6, ty + 6);
+  ctx.strokeStyle = fg; ctx.lineWidth = 3; ctx.stroke();
+  // 凡例・北・縮尺
+  ctx.font = 'bold 12px sans-serif';
+  Object.values(LEG).forEach((L, i) => { ctx.fillStyle = L.color; ctx.fillRect(8, 8 + i * 18, 14, 6); ctx.fillStyle = fg; ctx.fillText(L.name, 26, 15 + i * 18); });
+  ctx.fillText('× 着地', 8, 15 + 3 * 18);
+  ctx.fillStyle = '#e00000'; ctx.textAlign = 'center'; ctx.fillText('N ↑', w - 20, 18); ctx.textAlign = 'left';
+  const bar = niceScale(w / scale / 4);
+  ctx.strokeStyle = fg; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(10, h - 12); ctx.lineTo(10 + bar * scale, h - 12); ctx.stroke();
+  ctx.fillStyle = fg; ctx.font = '12px sans-serif'; ctx.fillText(`${bar} m`, 10, h - 18);
+  // 数字
+  const rows = a.legs.map((l) => [LEG[l.type].name, `${Math.round(l.length)} m ・ ${Math.round(l.sec)} 秒` + (l.aglStart != null ? ` ・ 入った時 対地 ${Math.round(l.aglStart)} m` : '')]);
+  rows.push(['ファイナルの向き', `${String(Math.round(a.finalHdg)).padStart(3, '0')}°` + (a.side ? `（${a.side === 'left' ? '左' : '右'}回りのパターン）` : '')]);
+  if (a.toLd != null) rows.push([`${ld.name} から`, `${Math.round(a.toLd)} m`]);
+  $('#lv-appr').innerHTML = rows.map(() => '<li><span></span><b></b></li>').join('');
+  [...$('#lv-appr').children].forEach((li, i) => { li.querySelector('span').textContent = rows[i][0]; li.querySelector('b').textContent = rows[i][1]; });
+  $('#lv-hints').innerHTML = '';
+  for (const t of a.hints.length ? a.hints : ['目安の範囲に入っています']) { const li = document.createElement('li'); li.textContent = t; $('#lv-hints').appendChild(li); }
 }
 
 function fitLog() {
@@ -1443,7 +1632,7 @@ function drawLogGraph() {
     const N = 200;
     LV.ground = Array.from({ length: N }, (_, k) => fx[Math.round((k / (N - 1)) * (fx.length - 1))]);
   }
-  const ground = LV.ground.map((f) => G.elevation(f.lat, f.lon, () => drawLogGraph()));
+  const ground = LV.ground.map((f) => G.elevation(f.lat, f.lon, redrawLogGraph));
   const alts = fx.map((f) => f.alt).filter((a) => a != null).concat(ground.filter((g) => g != null));
   const lo = Math.floor((Math.min(...alts) - 20) / 50) * 50, hi = Math.ceil((Math.max(...alts) + 20) / 50) * 50;
   const X = (t) => 36 + ((t - t0) / Math.max(1, t1 - t0)) * (w - 44);
@@ -1568,7 +1757,7 @@ $('#lv-igc').addEventListener('click', async () => {
   const lg = (await db.all('logs').catch(() => [])).find((x) => x.id === LV.lg.id);
   if (lg) exportIGC(lg);
 });
-T.setOnTileLoad(() => { S.dirty = true; if (LV.lg && !LV.play) drawLogMap(); });
+T.setOnTileLoad(() => { S.dirty = true; if (LV.lg && !LV.play) { drawLogMap(); renderApproach(); } });
 
 async function exportIGC(lg) {
   const igc = C.toIGC(lg.fixes, { pilot: lg.pilot, glider: lg.glider });

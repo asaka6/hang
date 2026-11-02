@@ -6,9 +6,9 @@ export const demUrl = (x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${
 
 const tiles = new Map(); // "x/y" -> { data: ImageData | null, loading, failed }
 
-function loadTile(x, y, onLoad) {
+function loadTile(x, y) {
   const key = `${x}/${y}`;
-  const t = { data: null, loading: true, failed: false };
+  const t = { data: null, loading: true, failed: false, waiting: [] };
   tiles.set(key, t);
   if (tiles.size > 40) tiles.delete(tiles.keys().next().value);
   const img = new Image();
@@ -22,7 +22,7 @@ function loadTile(x, y, onLoad) {
       t.data = ctx.getImageData(0, 0, 256, 256).data;
     } catch { t.failed = true; }
     t.loading = false;
-    onLoad && onLoad();
+    for (const fn of t.waiting.splice(0)) fn(); // 読み込み中に頼んできた全員に知らせる
   };
   img.onerror = () => { t.loading = false; t.failed = true; };
   img.src = demUrl(x, y);
@@ -33,8 +33,11 @@ function loadTile(x, y, onLoad) {
 export function elevation(lat, lon, onLoad) {
   const fx = lonToX(lon, DEM_Z), fy = latToY(lat, DEM_Z);
   const x = Math.floor(fx), y = Math.floor(fy);
-  const t = tiles.get(`${x}/${y}`) || loadTile(x, y, onLoad);
-  if (!t.data) return null;
+  const t = tiles.get(`${x}/${y}`) || loadTile(x, y);
+  if (!t.data) {
+    if (t.loading && onLoad && !t.waiting.includes(onLoad)) t.waiting.push(onLoad);
+    return null;
+  }
   const px = Math.min(255, Math.floor((fx - x) * 256)), py = Math.min(255, Math.floor((fy - y) * 256));
   const i = (py * 256 + px) * 4;
   const v = t.data[i] * 65536 + t.data[i + 1] * 256 + t.data[i + 2];
