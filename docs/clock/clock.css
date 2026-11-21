@@ -119,6 +119,11 @@ html, body {
 }
 #status.stale #updated { color: #c77; }
 
+/* 横長の iPad（Air / Pro / mini など）は時計を大きく */
+@media (orientation: landscape) and (min-aspect-ratio: 7/5) {
+  #hm { font-size: 27vmin; }
+}
+
 /* ---- 夜：暗く ---- */
 body.night #stage { opacity: 0.28; }
 body.night #hm { color: #ffcc80; }
