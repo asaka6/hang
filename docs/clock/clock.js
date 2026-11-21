@@ -91,6 +91,7 @@
     for (var i = 0; i < nums.length; i++) {
       var num = nums[i];
       var u = num.querySelector('.u');
+      if (/wind/.test(num.className)) continue;
       num.className = 'num';
       if (!u) continue;
       var cell = num.parentNode.parentNode.getBoundingClientRect();
@@ -160,7 +161,7 @@
     $('t-max').innerHTML = withUnit(today.max == null ? null : Math.round(today.max), '°', 'deg');
     $('t-min').innerHTML = withUnit(today.min == null ? null : Math.round(today.min), '°', 'deg');
     $('t-feel').textContent = fmtTemp(c.apparent_temperature);
-    $('t-wind').innerHTML = withUnit(c.wind_speed_10m == null ? null : Math.round(c.wind_speed_10m), 'm/s', '');
+    $('t-wind').innerHTML = c.wind_speed_10m == null ? '--' : '<span class="num wind">' + Math.round(c.wind_speed_10m) + '<span class="u">m/s</span></span>';
 
     // 1 時間ごと（横向きは 12 時間、縦向きは 8 時間）
     var count = window.innerWidth > window.innerHeight ? 12 : 8;
