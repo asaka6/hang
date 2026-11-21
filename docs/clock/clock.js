@@ -108,17 +108,14 @@
     xhr.send();
   }
 
-  var lastError = '';
   function fetchWeather() {
     var loc = settings.loc;
     if (!loc) return;
     getJSON(L.buildUrl(loc.lat, loc.lon), function (data) {
       weather = { data: data, at: Date.now(), place: loc.name };
-      lastError = '';
       save(CACHE_KEY, weather);
       render();
-    }, function (msg) {
-      lastError = msg;
+    }, function () {
       renderStatus();
     });
   }
@@ -211,15 +208,14 @@
     if (!settings.loc) {
       $('now-label').textContent = '場所が未設定です';
     }
+    // 普段は何も出さない。1 時間以上天気を更新できていない時だけ、赤字で知らせる
     var txt = '';
-    var stale = false;
-    if (weather && weather.at) {
+    var stale = !!(weather && weather.at && Date.now() - weather.at > STALE_MS);
+    if (stale) {
       var d = new Date(weather.at);
-      txt = '天気の更新 ' + d.getHours() + ':' + L.pad2(d.getMinutes());
-      stale = Date.now() - weather.at > STALE_MS;
+      txt = '天気を更新できていません（最後の更新 ' + d.getHours() + ':' + L.pad2(d.getMinutes()) + '）';
     }
-    if (lastError) txt += (txt ? '　' : '') + '（' + lastError + '）';
-    show('updated', txt + ' · Open-Meteo');
+    show('updated', txt);
     var cls = stale ? 'stale' : '';
     if ($('status').className !== cls) $('status').className = cls;
   }

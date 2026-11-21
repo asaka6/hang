@@ -166,13 +166,13 @@ html, body {
 #status {
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
   display: -webkit-flex; display: flex;
-  -webkit-justify-content: space-between; justify-content: space-between;
+  -webkit-align-items: center; align-items: center;
   font-size: 2.2vmin;
   color: #555;
-  margin-top: 1.2vmin;
-  padding-right: 7vmin;
+  margin-top: 1vmin;
 }
-#status.stale #updated { color: #c77; }
+#place { -webkit-flex: 1 1 auto; flex: 1 1 auto; }
+#updated { color: #c77; margin-right: 2vmin; }
 
 /* 横長の iPad（Air / Pro / mini など）は時計を大きく */
 /* 横向き：日付・時計・今の天気の囲みで、画面の上半分をちょうど使う（文字の大きさは変えない） */
@@ -203,12 +203,13 @@ body.night #hm { color: #ffcc80; }
 }
 
 /* ---- 設定 ---- */
+/* 歯車は右下（1 時間ごとの予報の囲みの右端にそろえる） */
 #gear {
-  position: absolute;
-  right: 1vmin; bottom: 1vmin;
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
   background: none; border: 0;
-  color: #333; font-size: 5vmin;
-  padding: 1vmin 2vmin;
+  color: #444; font-size: 3.6vmin; line-height: 1;
+  padding: 0.6vmin 0 0.6vmin 2vmin;
+  margin: -0.6vmin 0;
 }
 #settings {
   position: absolute;
