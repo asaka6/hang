@@ -109,6 +109,8 @@ html, body {
 .srow.big .v { font-size: 6vmin; }
 .stat .v .num { position: relative; display: inline-block; }
 .stat .v .u { position: absolute; left: 100%; bottom: 0.4vmin; font-size: 3vmin; line-height: 1; color: #aaa; margin-left: 0.3vmin; }
+.stat .v .u.deg { bottom: auto; top: 0; font-size: 1em; color: inherit; margin-left: 0; }
+.stat .v { line-height: 1.15; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 

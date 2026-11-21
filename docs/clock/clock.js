@@ -120,6 +120,11 @@
     });
   }
 
+  function withUnit(n, unit, cls) {
+    if (n == null) return '--';
+    return '<span class="num">' + n + '<span class="u' + (cls ? ' ' + cls : '') + '">' + unit + '</span></span>';
+  }
+
   function fmtTemp(v) {
     return v == null ? '--' : Math.round(v) + '°';
   }
@@ -136,11 +141,11 @@
 
     var days = L.dailyFrom(data, 1);
     var today = days[0] || {};
-    $('t-max').textContent = fmtTemp(today.max);
-    $('t-min').textContent = fmtTemp(today.min);
+    // 数字の中心を見出し（最高・最低・風）の中心にそろえ、° や m/s は数字の右に添える
+    $('t-max').innerHTML = withUnit(today.max == null ? null : Math.round(today.max), '°', 'deg');
+    $('t-min').innerHTML = withUnit(today.min == null ? null : Math.round(today.min), '°', 'deg');
     $('t-feel').textContent = fmtTemp(c.apparent_temperature);
-    // 数字をマスの中央に置き、単位 m/s はその右に添える
-    $('t-wind').innerHTML = c.wind_speed_10m == null ? '--' : '<span class="num">' + Math.round(c.wind_speed_10m) + '<span class="u">m/s</span></span>';
+    $('t-wind').innerHTML = withUnit(c.wind_speed_10m == null ? null : Math.round(c.wind_speed_10m), 'm/s', '');
 
     // 1 時間ごと（横向きは 12 時間、縦向きは 8 時間）
     var count = window.innerWidth > window.innerHeight ? 12 : 8;
