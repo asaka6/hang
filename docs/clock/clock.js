@@ -138,8 +138,8 @@
       temps.push(h.temp);
       feels.push(h.feel);
       html += '<div class="h' + (h.now ? ' now' : '') + '">' +
-        '<div class="temp">' + Math.round(h.temp) + '°</div>' +
-        '<div class="feel">' + (h.feel == null ? '' : Math.round(h.feel) + '°') + '</div>' +
+        '<div class="temp">' + Math.round(h.temp) + '</div>' +
+        '<div class="feel">' + (h.feel == null ? '' : Math.round(h.feel)) + '</div>' +
         '<div class="gap"></div>' +
         '<div class="icon">' + hw.icon + '</div>' +
         '<div class="pop' + (pop ? '' : ' zero') + '">' + (pop == null ? '' : pop + '%') + '</div>' +
