@@ -50,7 +50,7 @@ html, body {
 }
 #date {
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  font-size: 5.5vmin; color: #bbb; letter-spacing: 0.05em;
+  font-size: 6vmin; color: #bbb; letter-spacing: 0.05em;
   padding: 2vmin 3vmin;
   margin-bottom: 3vmin;
 }
@@ -74,14 +74,14 @@ html, body {
   -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
 }
 #now-main { text-align: center; }
-#now-icon { font-size: 12vmin; line-height: 1; margin-right: 2vmin; }
+#now-icon { font-size: 13vmin; line-height: 1; margin-right: 2vmin; }
 /* 気温の数字だけで幅を決め、°は右にはみ出させる。体感はその数字の真下・中央に置く */
 #now-main { padding-right: 4vmin; }
-#now-temp { font-size: 15.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; position: relative; display: inline-block; }
-#now-temp .unit { position: absolute; left: 100%; top: 0; font-size: 8vmin; line-height: 1; color: #aaa; }
+#now-temp { font-size: 17vmin; font-weight: 200; line-height: 1; white-space: nowrap; position: relative; display: inline-block; }
+#now-temp .unit { position: absolute; left: 100%; top: 0; font-size: 8.5vmin; line-height: 1; color: #aaa; }
 #now-feel { margin-top: 1.2vmin; white-space: nowrap; color: #999; line-height: 1; }
-#now-feel .k { font-size: 3.4vmin; color: #777; margin-right: 0.8vmin; }
-#now-feel #t-feel { font-size: 4.4vmin; }
+#now-feel .k { font-size: 3.6vmin; color: #777; margin-right: 0.8vmin; }
+#now-feel #t-feel { font-size: 4.8vmin; }
 #now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
 #now-wrap {
   text-align: center;
@@ -104,10 +104,10 @@ html, body {
   line-height: 1.15;
 }
 .stat + .stat { border-left: 1px solid #262626; }
-.stat .k { color: #888; font-size: 2.9vmin; margin-bottom: 0.6vmin; }
+.stat .k { color: #888; font-size: 3.1vmin; margin-bottom: 0.6vmin; }
 .stat .v { font-size: 3.8vmin; white-space: nowrap; }
-.srow.big .v { font-size: 6vmin; }
-.stat .v .u { font-size: 3vmin; color: #aaa; margin-left: 0.3vmin; }
+.srow.big .v { font-size: 6.6vmin; }
+.stat .v .u { font-size: 3.2vmin; color: #aaa; margin-left: 0.3vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 
@@ -175,6 +175,10 @@ html, body {
 #status.stale #updated { color: #c77; }
 
 /* 横長の iPad（Air / Pro / mini など）は時計を大きく */
+/* 横向き：日付・時計・今の天気で、画面の上半分をちょうど使う */
+@media (orientation: landscape) {
+  #top { -webkit-flex: 0 0 auto; flex: 0 0 auto; height: calc(50vh - 3vmin); }
+}
 @media (orientation: landscape) and (min-aspect-ratio: 7/5) {
   #hm { font-size: 27vmin; }
 }
@@ -191,11 +195,15 @@ body.night #hm { color: #ffcc80; }
   #time { padding: 2vmin 0; }
   #now { max-width: 100%; -webkit-justify-content: center; justify-content: center; }
   #now-wrap { text-align: center; margin: 0; }
-  #now-icon { font-size: 12vmin; }
+  #now-icon { font-size: 13vmin; }
   #now-temp { font-size: 13vmin; }
   #now-sub { margin-top: 1.5vmin; padding-top: 0.5vmin; }
   .srow { margin-top: 1.5vmin; }
   .srow.big .v { font-size: 4.2vmin; }
+  #date { font-size: 5vmin; }
+  .stat .k { font-size: 2.5vmin; }
+  #now-feel .k { font-size: 3vmin; }
+  #now-feel #t-feel { font-size: 3.8vmin; }
 }
 
 /* ---- 設定 ---- */

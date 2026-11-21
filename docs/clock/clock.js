@@ -66,22 +66,23 @@
 
   var lastMinute = -1;
   var lastReloadDay = new Date().getDate();
-  // 時刻が囲みからはみ出す時だけ、文字を小さくして収める
-  // （寒い日の「-12°」などで右の天気欄が広がった時や、12 時間表示の時のため）
+  // 時刻の文字を、時計の囲みいっぱい（はみ出さない最大）の大きさにする。
+  // 寒い日の「-12°」で右の天気欄が広がった時や 12 時間表示の時も、自動で収まる
   function fitTime() {
     var box = $('time');
     var inner = $('time-in');
     var hm = $('hm');
-    hm.style.fontSize = '';
     var sec = $('sec');
+    hm.style.fontSize = '';
     sec.style.fontSize = '';
-    var room = box.clientWidth - 16;
-    var need = inner.offsetWidth;
-    if (need > room && need > 0) {
-      var k = room / need;
-      hm.style.fontSize = (parseFloat(getComputedStyle(hm).fontSize) * k) + 'px';
-      sec.style.fontSize = (parseFloat(getComputedStyle(sec).fontSize) * k) + 'px';
-    }
+    var roomW = box.clientWidth - 24;
+    var roomH = box.clientHeight * 0.86;
+    var needW = inner.offsetWidth;
+    var needH = parseFloat(getComputedStyle(hm).fontSize);
+    if (!needW || !needH || roomW <= 0 || roomH <= 0) return;
+    var k = Math.min(roomW / needW, roomH / needH, 1.6);
+    hm.style.fontSize = (needH * k) + 'px';
+    sec.style.fontSize = (parseFloat(getComputedStyle(sec).fontSize) * k) + 'px';
   }
 
   function everyMinute(now) {
