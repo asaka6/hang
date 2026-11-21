@@ -20,7 +20,11 @@ html, body {
   -webkit-flex-direction: column; flex-direction: column;
   cursor: pointer; /* 古い iOS で div のタップを拾うため */
   -webkit-transition: opacity 2s, -webkit-transform 1s; transition: opacity 2s, transform 1s;
+  /* 画面全体を GPU の 1 枚の層にしておく：毎秒の書き換えは秒の部分だけ、夜の暗さやずらしは描き直しなし */
+  -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0);
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
 }
+
 
 /* ---- セクション（日付・時刻・今の天気・1 時間ごと）はそれぞれ囲みにする ---- */
 .card {

@@ -28,21 +28,40 @@
   var wakeUntil = 0;
 
   // ---------------- 時計 ----------------
+  // 省電力のため、表示が変わった所だけ書き換える（毎秒すべてを書き直すと古い iPad では負担が大きい）
+  var shown = {};
+  function show(id, text) {
+    if (shown[id] === text) return;
+    shown[id] = text;
+    $(id).textContent = text;
+  }
+
+  function updateNight(now) {
+    var night = settings.night && L.isNight(now.getHours(), settings.nightStart, settings.nightEnd) &&
+      now.getTime() > wakeUntil;
+    var cls = night ? 'night' : '';
+    if (document.body.className !== cls) document.body.className = cls;
+  }
+
+  var tickTimer = null;
   function tick() {
     var now = new Date();
     var t = L.formatTime(now, settings.h12);
-    $('hm').textContent = t.main;
-    $('sec').textContent = settings.sec ? t.sec : '';
-    $('ampm').textContent = t.ampm;
-    $('date').textContent = L.formatDate(now);
-
-    var night = settings.night && L.isNight(now.getHours(), settings.nightStart, settings.nightEnd) &&
-      now.getTime() > wakeUntil;
-    document.body.className = night ? 'night' : '';
+    show('hm', t.main);
+    show('sec', settings.sec ? t.sec : '');
+    show('ampm', t.ampm);
+    show('date', L.formatDate(now));
+    updateNight(now);
 
     var minute = now.getHours() * 60 + now.getMinutes();
     if (minute !== lastMinute) { lastMinute = minute; everyMinute(now); }
-    setTimeout(tick, 1000 - now.getMilliseconds() + 5);
+    // 秒を出さない時は 1 分に 1 回だけ動く
+    var wait = settings.sec ? 1000 - now.getMilliseconds() : 60000 - now.getSeconds() * 1000 - now.getMilliseconds();
+    tickTimer = setTimeout(tick, wait + 5);
+  }
+  function restartTick() {
+    clearTimeout(tickTimer);
+    tick();
   }
 
   var lastMinute = -1;
@@ -52,7 +71,8 @@
     var dx = Math.round(Math.random() * 8 - 4);
     var dy = Math.round(Math.random() * 6 - 3);
     var s = $('stage').style;
-    s.webkitTransform = s.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    // translate3d にして、ずらす動きや夜の暗さを GPU に任せる（画面全体の描き直しを防ぐ）
+    s.webkitTransform = s.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
     renderStatus();
     // 毎朝 4 時に読み込み直す（アプリの更新を反映し、長時間動かしても重くならないように）
     if (now.getHours() === 4 && now.getMinutes() === 0 && now.getDate() !== lastReloadDay && navigator.onLine !== false) {
@@ -173,7 +193,7 @@
 
   function renderStatus() {
     var place = settings.loc ? settings.loc.name : '';
-    $('place').textContent = place ? '📍 ' + place : '⚙︎ を押して場所を設定してください';
+    show('place', place ? '📍 ' + place : '⚙︎ を押して場所を設定してください');
     if (!settings.loc) {
       $('now-label').textContent = '場所が未設定です';
     }
@@ -185,8 +205,9 @@
       stale = Date.now() - weather.at > STALE_MS;
     }
     if (lastError) txt += (txt ? '　' : '') + '（' + lastError + '）';
-    $('updated').textContent = txt + ' · Open-Meteo';
-    $('status').className = stale ? 'stale' : '';
+    show('updated', txt + ' · Open-Meteo');
+    var cls = stale ? 'stale' : '';
+    if ($('status').className !== cls) $('status').className = cls;
   }
 
   // ---------------- 場所 ----------------
@@ -255,6 +276,7 @@
     settings.nightStart = +$('s-ns').value;
     settings.nightEnd = +$('s-ne').value;
     save(KEY, settings);
+    restartTick();
     $('settings').className = 'hidden';
     $('s-results').innerHTML = '';
   }
@@ -277,7 +299,11 @@
     $('settings').onclick = function (e) { if (e.target === $('settings')) closeSettings(); };
 
     // 夜に画面をタップすると 1 分だけ明るく
-    $('stage').onclick = function () { wakeUntil = Date.now() + 60 * 1000; };
+    $('stage').onclick = function () {
+      wakeUntil = Date.now() + 60 * 1000;
+      updateNight(new Date());
+      setTimeout(function () { updateNight(new Date()); }, 60 * 1000 + 50);
+    };
 
     var lastW = window.innerWidth > window.innerHeight;
     window.addEventListener('resize', function () {
