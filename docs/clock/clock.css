@@ -69,15 +69,16 @@ html, body {
   -webkit-justify-content: flex-end; justify-content: flex-end;
   -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
 }
-#now-main { text-align: left; }
+#now-main { text-align: center; }
 #now-icon { font-size: 10vmin; line-height: 1; margin-right: 2vmin; }
 #now-temp { font-size: 12.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; }
 #now-temp .unit { font-size: 7vmin; vertical-align: top; color: #aaa; }
-#now-feel { font-size: 3.6vmin; margin-top: 0.6vmin; white-space: nowrap; color: #999; }
+#now-feel { font-size: 3.6vmin; margin-top: 1vmin; padding-right: 3vmin; /* °の分だけ数字の中心に寄せる */ white-space: nowrap; color: #999; }
 #now-feel .k { font-size: 2.8vmin; color: #777; margin-right: 0.8vmin; }
 #now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
 #now-wrap {
-  text-align: right;
+  text-align: center;
+  min-width: 40vmin;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
   margin-left: 3vmin;
   padding: 2vmin 3vmin;
@@ -85,8 +86,21 @@ html, body {
   -webkit-flex-direction: column; flex-direction: column;
   -webkit-justify-content: center; justify-content: center;
 }
-#now-sub { font-size: 3.4vmin; margin-top: 2.5vmin; padding-top: 2vmin; border-top: 1px solid #2a2a2a; line-height: 1.55; }
-#now-sub .k { color: #888; font-size: 2.8vmin; margin: 0 0.8vmin 0 2.5vmin; }
+#now-sub { margin-top: 2.5vmin; padding-top: 1vmin; border-top: 1px solid #2a2a2a; }
+.srow {
+  display: -webkit-flex; display: flex;
+  margin-top: 1.8vmin;
+}
+.stat {
+  -webkit-flex: 1 1 0; flex: 1 1 0;
+  text-align: center;
+  line-height: 1.15;
+}
+.stat + .stat { border-left: 1px solid #262626; }
+.stat .k { color: #888; font-size: 2.5vmin; margin-bottom: 0.6vmin; }
+.stat .v { font-size: 3.8vmin; white-space: nowrap; }
+.srow.big .v { font-size: 5vmin; }
+.srow + .srow { margin-top: 2.6vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 
@@ -164,7 +178,10 @@ body.night #hm { color: #ffcc80; }
   #now-wrap { text-align: center; margin: 0; }
   #now-icon { font-size: 12vmin; }
   #now-temp { font-size: 13vmin; }
-  #now-sub { margin-top: 1.5vmin; padding-top: 1.5vmin; }
+  #now-sub { margin-top: 1.5vmin; padding-top: 0.5vmin; display: -webkit-flex; display: flex; }
+  .srow { margin-top: 1.5vmin; -webkit-flex: 2 1 0; flex: 2 1 0; }
+  .srow + .srow { margin-top: 1.5vmin; -webkit-flex: 3 1 0; flex: 3 1 0; border-left: 1px solid #262626; }
+  .srow.big .v { font-size: 3.8vmin; }
 }
 
 /* ---- 設定 ---- */
