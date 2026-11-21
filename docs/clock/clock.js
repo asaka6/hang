@@ -66,8 +66,27 @@
 
   var lastMinute = -1;
   var lastReloadDay = new Date().getDate();
+  // 時刻が囲みからはみ出す時だけ、文字を小さくして収める
+  // （寒い日の「-12°」などで右の天気欄が広がった時や、12 時間表示の時のため）
+  function fitTime() {
+    var box = $('time');
+    var inner = $('time-in');
+    var hm = $('hm');
+    hm.style.fontSize = '';
+    var sec = $('sec');
+    sec.style.fontSize = '';
+    var room = box.clientWidth - 16;
+    var need = inner.offsetWidth;
+    if (need > room && need > 0) {
+      var k = room / need;
+      hm.style.fontSize = (parseFloat(getComputedStyle(hm).fontSize) * k) + 'px';
+      sec.style.fontSize = (parseFloat(getComputedStyle(sec).fontSize) * k) + 'px';
+    }
+  }
+
   function everyMinute(now) {
     renderStatus();
+    fitTime();
     // 毎朝 4 時に読み込み直す（アプリの更新を反映し、長時間動かしても重くならないように）
     if (now.getHours() === 4 && now.getMinutes() === 0 && now.getDate() !== lastReloadDay && navigator.onLine !== false) {
       lastReloadDay = now.getDate();
@@ -148,6 +167,7 @@
     }
     $('hours').innerHTML = html;
     drawGraph(temps, feels);
+    fitTime();
   }
 
   // 気温の折れ線（SVG）
@@ -158,8 +178,8 @@
     var W = 1000;
     var H = 100;
     var hasFeel = feels && feels.length && feels[0] != null;
-    var pts = L.tempPoints(temps, W, H, 16, hasFeel ? feels : null);
-    var fpts = hasFeel ? L.tempPoints(feels, W, H, 16, temps) : [];
+    var pts = L.tempPoints(temps, W, H, 12, hasFeel ? feels : null);
+    var fpts = hasFeel ? L.tempPoints(feels, W, H, 12, temps) : [];
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     var line = '';
     var fline = '';
@@ -271,6 +291,7 @@
     settings.nightEnd = +$('s-ne').value;
     save(KEY, settings);
     restartTick();
+    fitTime();
     $('settings').className = 'hidden';
     $('s-results').innerHTML = '';
   }
@@ -303,6 +324,7 @@
     window.addEventListener('resize', function () {
       var w = window.innerWidth > window.innerHeight;
       if (w !== lastW) { lastW = w; render(); }
+      fitTime();
     });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden && (!weather || Date.now() - weather.at > REFRESH_MS)) fetchWeather();
