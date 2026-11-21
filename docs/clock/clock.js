@@ -84,6 +84,21 @@
     }
   }
 
+  // 最高・最低・風：数字を見出しの真下に置き、° や m/s を右に添える。
+  // 「12m/s」「-18°」などで欄からはみ出しそうな時だけ、単位も含めた全体を中央に置く
+  function fitStats() {
+    var nums = document.querySelectorAll('.stat .num');
+    for (var i = 0; i < nums.length; i++) {
+      var num = nums[i];
+      var u = num.querySelector('.u');
+      num.className = 'num';
+      if (!u) continue;
+      var cell = num.parentNode.parentNode.getBoundingClientRect();
+      var ur = u.getBoundingClientRect();
+      if (ur.right > cell.right - 4) num.className = 'num inl';
+    }
+  }
+
   function everyMinute(now) {
     renderStatus();
     fitTime();
@@ -171,6 +186,7 @@
     $('hours').innerHTML = html;
     drawGraph(temps, feels);
     fitTime();
+    fitStats();
   }
 
   // 気温の折れ線（SVG）
@@ -327,6 +343,7 @@
       var w = window.innerWidth > window.innerHeight;
       if (w !== lastW) { lastW = w; render(); }
       fitTime();
+      fitStats();
     });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden && (!weather || Date.now() - weather.at > REFRESH_MS)) fetchWeather();
