@@ -1,0 +1,195 @@
+/* 古い iPad（iOS 9〜）でも崩れないよう、CSS Grid や変数は使わず flex と vmin で組んでいます */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #f2f2f2;
+  font-family: -apple-system, "Helvetica Neue", "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+}
+* { box-sizing: border-box; }
+
+#stage {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 3vmin 4vmin 2vmin;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  cursor: pointer; /* 古い iOS で div のタップを拾うため */
+  -webkit-transition: opacity 2s, -webkit-transform 1s; transition: opacity 2s, transform 1s;
+}
+
+/* ---- 上段：時計と今の天気 ---- */
+#top {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  min-height: 0;
+}
+#clock { line-height: 1; min-width: 0; }
+#date { font-size: 5.5vmin; color: #bbb; margin-bottom: 1vmin; letter-spacing: 0.05em; }
+#time { white-space: nowrap; font-weight: 200; }
+#hm { font-size: 24vmin; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+#sec { font-size: 7vmin; color: #888; margin-left: 1.5vmin; font-variant-numeric: tabular-nums; }
+#ampm { font-size: 5.5vmin; color: #aaa; margin-right: 1.5vmin; }
+
+#now {
+  display: -webkit-flex; display: flex;
+  -webkit-flex-wrap: wrap; flex-wrap: wrap;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: flex-end; justify-content: flex-end;
+  -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
+}
+#now-main { text-align: left; }
+#now-icon { font-size: 10vmin; line-height: 1; margin-right: 2vmin; }
+#now-temp { font-size: 12.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; }
+#now-temp .unit { font-size: 7vmin; vertical-align: top; color: #aaa; }
+#now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
+#now-wrap { text-align: right; -webkit-flex: 0 0 auto; flex: 0 0 auto; margin-left: 2vmin; }
+#now-sub { font-size: 3.4vmin; margin-top: 2vmin; line-height: 1.55; }
+#now-sub .k { color: #888; font-size: 2.8vmin; margin: 0 0.8vmin 0 2.5vmin; }
+.hot { color: #ff8a65; }
+.cold { color: #64b5f6; }
+
+/* ---- 中段：1 時間ごと ---- */
+#hourly {
+  position: relative;
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  border-top: 1px solid #262626;
+  padding-top: 1.2vmin;
+  height: 21vmin;
+}
+#graph { position: absolute; left: 0; right: 0; top: 5vmin; width: 100%; height: 7vmin; pointer-events: none; }
+#hours {
+  position: relative;
+  display: -webkit-flex; display: flex;
+  height: 100%;
+}
+.h {
+  -webkit-flex: 1 1 0; flex: 1 1 0;
+  text-align: center;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  -webkit-align-items: center; align-items: center;
+  min-width: 0;
+}
+.h .temp { font-size: 3.4vmin; height: 4vmin; }
+.h .gap { height: 7vmin; }
+.h .icon { font-size: 4.2vmin; line-height: 1; }
+.h .pop { font-size: 2.6vmin; color: #64b5f6; height: 3vmin; }
+.h .pop.zero { color: #444; }
+.h .hour { font-size: 2.8vmin; color: #999; }
+.h.now .hour { color: #fff; font-weight: bold; }
+
+/* ---- 下段：日ごと ---- */
+#daily {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  display: -webkit-flex; display: flex;
+  border-top: 1px solid #262626;
+  margin-top: 1.2vmin;
+  padding-top: 1.5vmin;
+}
+.d {
+  -webkit-flex: 1 1 0; flex: 1 1 0;
+  text-align: center;
+  min-width: 0;
+}
+.d .name { font-size: 3.2vmin; color: #ccc; }
+.d .name small { font-size: 2.2vmin; color: #777; margin-left: 0.6vmin; }
+.d.sun .name { color: #ef9a9a; }
+.d.sat .name { color: #90caf9; }
+.d .icon { font-size: 6vmin; line-height: 1.3; }
+.d .t { font-size: 3.4vmin; }
+.d .t .cold { margin-left: 1.2vmin; }
+.d .pop { font-size: 2.6vmin; color: #64b5f6; }
+
+#status {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  display: -webkit-flex; display: flex;
+  -webkit-justify-content: space-between; justify-content: space-between;
+  font-size: 2.2vmin;
+  color: #555;
+  margin-top: 1vmin;
+  padding-right: 7vmin;
+}
+#status.stale #updated { color: #c77; }
+
+/* ---- 夜：暗く ---- */
+body.night #stage { opacity: 0.28; }
+body.night #hm { color: #ffcc80; }
+
+/* ---- 縦向き ---- */
+@media (orientation: portrait) {
+  #top {
+    -webkit-flex-direction: column; flex-direction: column;
+    -webkit-justify-content: space-around; justify-content: space-around;
+  }
+  #clock { text-align: center; }
+  #hm { font-size: 30vmin; }
+  #now { max-width: 100%; -webkit-justify-content: center; justify-content: center; }
+  #now-wrap { text-align: center; margin-left: 0; }
+  #now-icon { font-size: 15vmin; }
+  #now-temp { font-size: 16vmin; }
+  #hourly { height: 24vmin; }
+}
+
+/* ---- 設定 ---- */
+#gear {
+  position: absolute;
+  right: 1vmin; bottom: 1vmin;
+  background: none; border: 0;
+  color: #333; font-size: 5vmin;
+  padding: 1vmin 2vmin;
+}
+#settings {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+}
+#settings.hidden { display: none; }
+.panel {
+  background: #1c1c1e;
+  border-radius: 14px;
+  padding: 20px 24px;
+  width: 92%;
+  max-width: 560px;
+  max-height: 92%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: 17px;
+}
+.panel h2 { margin: 0 0 12px; font-size: 22px; }
+.row {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin: 12px 0;
+}
+.row .label { -webkit-flex: 1; flex: 1; }
+.row.end { -webkit-justify-content: flex-end; justify-content: flex-end; }
+.row.check input { width: 22px; height: 22px; margin-right: 10px; }
+.row select { margin: 0 4px 0 12px; font-size: 16px; }
+.panel input[type=search] {
+  -webkit-flex: 1; flex: 1;
+  font-size: 17px; padding: 8px 10px;
+  border-radius: 8px; border: 1px solid #444;
+  background: #000; color: #fff;
+  -webkit-appearance: none;
+  margin-right: 8px;
+}
+.panel button {
+  font-size: 16px; padding: 8px 14px;
+  border-radius: 8px; border: 1px solid #555;
+  background: #2c2c2e; color: #fff;
+}
+.panel button.primary { background: #0a84ff; border-color: #0a84ff; }
+#s-results button { display: block; width: 100%; text-align: left; margin: 6px 0; }
+#s-results .msg { color: #aaa; font-size: 15px; }
+.note { color: #888; font-size: 14px; margin: 4px 0 0; }

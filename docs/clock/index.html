@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="置き時計">
+<meta name="theme-color" content="#000000">
+<title>置き時計</title>
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="clock.css">
+</head>
+<body>
+<div id="stage">
+  <div id="top">
+    <div id="clock">
+      <div id="date"></div>
+      <div id="time"><span id="ampm"></span><span id="hm">--:--</span><span id="sec"></span></div>
+    </div>
+    <div id="now-wrap">
+      <div id="now">
+        <div id="now-icon"></div>
+        <div id="now-main">
+          <div id="now-temp">--<span class="unit">°</span></div>
+          <div id="now-label">天気を読み込み中…</div>
+        </div>
+      </div>
+      <div id="now-sub">
+        <div><span class="k">最高</span><span id="t-max" class="hot">--</span><span class="k">最低</span><span id="t-min" class="cold">--</span></div>
+        <div><span class="k">降水</span><span id="t-pop">--</span><span class="k">湿度</span><span id="t-hum">--</span></div>
+        <div><span class="k">体感</span><span id="t-feel">--</span><span class="k">風</span><span id="t-wind">--</span></div>
+      </div>
+    </div>
+  </div>
+  <div id="hourly"><svg id="graph" preserveAspectRatio="none"></svg><div id="hours"></div></div>
+  <div id="daily"></div>
+  <div id="status"><span id="place"></span><span id="updated"></span></div>
+</div>
+
+<button id="gear" aria-label="設定">⚙︎</button>
+
+<div id="settings" class="hidden">
+  <div class="panel">
+    <h2>設定</h2>
+    <div class="row">
+      <div class="label">場所：<b id="s-place">未設定</b></div>
+      <button id="s-geo">現在地を使う</button>
+    </div>
+    <div class="row">
+      <input id="s-q" type="search" placeholder="市区町村名で探す（例：白山市）">
+      <button id="s-search">検索</button>
+    </div>
+    <div id="s-results"></div>
+    <label class="row check"><input id="s-h12" type="checkbox"> 12 時間表示（午前 / 午後）</label>
+    <label class="row check"><input id="s-sec" type="checkbox"> 秒を表示</label>
+    <label class="row check"><input id="s-night" type="checkbox"> 夜は画面を暗くする
+      <select id="s-ns"></select>時〜<select id="s-ne"></select>時</label>
+    <p class="note">画面をタップすると、夜でも 1 分間だけ明るくなります。</p>
+    <div class="row end"><button id="s-close" class="primary">閉じる</button></div>
+  </div>
+</div>
+
+<script src="clock-logic.js"></script>
+<script src="clock.js"></script>
+</body>
+</html>
