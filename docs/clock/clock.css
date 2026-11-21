@@ -74,7 +74,7 @@ html, body {
   -webkit-flex-wrap: nowrap; flex-wrap: nowrap;
 }
 #now-main { text-align: center; }
-#now-icon { font-size: 12vmin; line-height: 1; margin-right: 2vmin; }
+#now-icon { font-size: 12vmin; line-height: 1; margin-right: 5vmin; }
 /* 気温の数字だけで幅を決め、°は右にはみ出させる。体感はその数字の真下・中央に置く */
 #now-main { padding-right: 4vmin; }
 #now-temp { font-size: 15.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; position: relative; display: inline-block; }
@@ -107,7 +107,8 @@ html, body {
 .stat .k { color: #888; font-size: 2.9vmin; margin-bottom: 0.6vmin; }
 .stat .v { font-size: 3.8vmin; white-space: nowrap; }
 .srow.big .v { font-size: 6vmin; }
-.stat .v .u { font-size: 3vmin; color: #aaa; margin-left: 0.3vmin; }
+.stat .v .num { position: relative; display: inline-block; }
+.stat .v .u { position: absolute; left: 100%; bottom: 0.4vmin; font-size: 3vmin; line-height: 1; color: #aaa; margin-left: 0.3vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 

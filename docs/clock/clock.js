@@ -139,7 +139,8 @@
     $('t-max').textContent = fmtTemp(today.max);
     $('t-min').textContent = fmtTemp(today.min);
     $('t-feel').textContent = fmtTemp(c.apparent_temperature);
-    $('t-wind').innerHTML = c.wind_speed_10m == null ? '--' : Math.round(c.wind_speed_10m) + '<span class="u">m/s</span>';
+    // 数字をマスの中央に置き、単位 m/s はその右に添える
+    $('t-wind').innerHTML = c.wind_speed_10m == null ? '--' : '<span class="num">' + Math.round(c.wind_speed_10m) + '<span class="u">m/s</span></span>';
 
     // 1 時間ごと（横向きは 12 時間、縦向きは 8 時間）
     var count = window.innerWidth > window.innerHeight ? 12 : 8;
