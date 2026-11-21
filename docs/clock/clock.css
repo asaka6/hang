@@ -35,7 +35,7 @@ html, body {
   display: -webkit-flex; display: flex;
   -webkit-align-items: stretch; align-items: stretch;
   min-height: 0;
-  margin-bottom: 2vmin;
+  margin-bottom: 3vmin;
 }
 #clock {
   -webkit-flex: 1 1 auto; flex: 1 1 auto;
@@ -48,7 +48,7 @@ html, body {
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
   font-size: 5vmin; color: #bbb; letter-spacing: 0.05em;
   padding: 2.2vmin 3vmin;
-  margin-bottom: 2vmin;
+  margin-bottom: 3vmin;
 }
 #time {
   -webkit-flex: 1 1 auto; flex: 1 1 auto;
@@ -79,7 +79,7 @@ html, body {
 #now-wrap {
   text-align: right;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  margin-left: 2vmin;
+  margin-left: 3vmin;
   padding: 2vmin 3vmin;
   display: -webkit-flex; display: flex;
   -webkit-flex-direction: column; flex-direction: column;
@@ -157,7 +157,7 @@ body.night #hm { color: #ffcc80; }
 /* ---- 縦向き ---- */
 @media (orientation: portrait) {
   #top { -webkit-flex-direction: column; flex-direction: column; }
-  #clock { text-align: center; margin-bottom: 2vmin; }
+  #clock { text-align: center; margin-bottom: 3vmin; }
   #hm { font-size: 26vmin; }
   #time { padding: 2vmin 0; }
   #now { max-width: 100%; -webkit-justify-content: center; justify-content: center; }
