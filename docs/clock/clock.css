@@ -51,8 +51,20 @@ html, body {
 #now-feel { font-size: 3.6vmin; margin-top: 0.6vmin; white-space: nowrap; color: #999; }
 #now-feel .k { font-size: 2.8vmin; color: #777; margin-right: 0.8vmin; }
 #now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
-#now-wrap { text-align: right; -webkit-flex: 0 0 auto; flex: 0 0 auto; margin-left: 2vmin; }
-#now-sub { font-size: 3.4vmin; margin-top: 2vmin; line-height: 1.55; }
+/* 区切り：時計と今の天気の間に縦線 */
+#now-wrap {
+  text-align: right;
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  margin-left: 3vmin;
+  padding-left: 4vmin;
+  border-left: 1px solid #3a3a3a;
+  -webkit-align-self: stretch; align-self: stretch;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-justify-content: center; justify-content: center;
+  margin-top: 2vmin; margin-bottom: 2vmin;
+}
+#now-sub { font-size: 3.4vmin; margin-top: 2.5vmin; padding-top: 2vmin; border-top: 1px solid #2a2a2a; line-height: 1.55; }
 #now-sub .k { color: #888; font-size: 2.8vmin; margin: 0 0.8vmin 0 2.5vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
@@ -61,9 +73,10 @@ html, body {
 #hourly {
   position: relative;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  border-top: 1px solid #262626;
-  padding: 2vmin 0 1vmin;
-  height: 36vmin;
+  border-top: 1px solid #3a3a3a;
+  border-bottom: 1px solid #3a3a3a;
+  padding: 2.5vmin 0 1.5vmin;
+  height: 38vmin;
   display: -webkit-flex; display: flex;
 }
 #legend {
@@ -108,7 +121,7 @@ html, body {
   -webkit-justify-content: space-between; justify-content: space-between;
   font-size: 2.2vmin;
   color: #555;
-  margin-top: 1vmin;
+  margin-top: 1.2vmin;
   padding-right: 7vmin;
 }
 #status.stale #updated { color: #c77; }
@@ -131,7 +144,7 @@ body.night #hm { color: #ffcc80; }
   #clock { text-align: center; }
   #hm { font-size: 30vmin; }
   #now { max-width: 100%; -webkit-justify-content: center; justify-content: center; }
-  #now-wrap { text-align: center; margin-left: 0; }
+  #now-wrap { text-align: center; margin: 0; padding: 3vmin 0 0; border-left: 0; border-top: 1px solid #3a3a3a; -webkit-align-self: auto; align-self: auto; }
   #now-icon { font-size: 15vmin; }
   #now-temp { font-size: 16vmin; }
 }
