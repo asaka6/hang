@@ -102,7 +102,7 @@
     var w = L.describe(c.weather_code, c.is_day);
     $('now-icon').textContent = w.icon;
     $('now-temp').innerHTML = (c.temperature_2m == null ? '--' : c.temperature_2m.toFixed(1)) + '<span class="unit">°</span>';
-    $('now-label').textContent = w.label;
+    $('now-label').textContent = ''; // 天気の文字（晴れ時々くもり など）は出さない。読み込み中などのお知らせだけに使う
 
     var days = L.dailyFrom(data, 1);
     var today = days[0] || {};
