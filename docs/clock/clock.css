@@ -22,20 +22,45 @@ html, body {
   -webkit-transition: opacity 2s, -webkit-transform 1s; transition: opacity 2s, transform 1s;
 }
 
-/* ---- 上段：時計と今の天気 ---- */
+/* ---- セクション（日付・時刻・今の天気・1 時間ごと）はそれぞれ囲みにする ---- */
+.card {
+  background: #0f0f0f;
+  border: 1px solid #2e2e2e;
+  border-radius: 2.2vmin;
+}
+
+/* ---- 上段：日付・時刻と今の天気 ---- */
 #top {
   -webkit-flex: 1 1 auto; flex: 1 1 auto;
   display: -webkit-flex; display: flex;
+  -webkit-align-items: stretch; align-items: stretch;
+  min-height: 0;
+  margin-bottom: 2vmin;
+}
+#clock {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  min-width: 0;
+  line-height: 1;
+}
+#date {
+  -webkit-flex: 0 0 auto; flex: 0 0 auto;
+  font-size: 5vmin; color: #bbb; letter-spacing: 0.05em;
+  padding: 2.2vmin 3vmin;
+  margin-bottom: 2vmin;
+}
+#time {
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  display: -webkit-flex; display: flex;
   -webkit-align-items: center; align-items: center;
-  -webkit-justify-content: space-between; justify-content: space-between;
+  -webkit-justify-content: center; justify-content: center;
   min-height: 0;
 }
-#clock { line-height: 1; min-width: 0; }
-#date { font-size: 5.5vmin; color: #bbb; margin-bottom: 4vmin; letter-spacing: 0.05em; }
-#time { white-space: nowrap; font-weight: 200; }
-#hm { font-size: 24vmin; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-#sec { font-size: 7vmin; color: #888; margin-left: 1.5vmin; font-variant-numeric: tabular-nums; }
-#ampm { font-size: 5.5vmin; color: #aaa; margin-right: 1.5vmin; }
+#time-in { white-space: nowrap; font-weight: 200; }
+#hm { font-size: 21vmin; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+#sec { font-size: 6.5vmin; color: #888; margin-left: 1.5vmin; font-variant-numeric: tabular-nums; }
+#ampm { font-size: 5vmin; color: #aaa; margin-right: 1.5vmin; }
 
 #now {
   display: -webkit-flex; display: flex;
@@ -51,18 +76,14 @@ html, body {
 #now-feel { font-size: 3.6vmin; margin-top: 0.6vmin; white-space: nowrap; color: #999; }
 #now-feel .k { font-size: 2.8vmin; color: #777; margin-right: 0.8vmin; }
 #now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
-/* 区切り：時計と今の天気の間に縦線 */
 #now-wrap {
   text-align: right;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  margin-left: 3vmin;
-  padding-left: 4vmin;
-  border-left: 1px solid #3a3a3a;
-  -webkit-align-self: stretch; align-self: stretch;
+  margin-left: 2vmin;
+  padding: 2vmin 3vmin;
   display: -webkit-flex; display: flex;
   -webkit-flex-direction: column; flex-direction: column;
   -webkit-justify-content: center; justify-content: center;
-  margin-top: 2vmin; margin-bottom: 2vmin;
 }
 #now-sub { font-size: 3.4vmin; margin-top: 2.5vmin; padding-top: 2vmin; border-top: 1px solid #2a2a2a; line-height: 1.55; }
 #now-sub .k { color: #888; font-size: 2.8vmin; margin: 0 0.8vmin 0 2.5vmin; }
@@ -73,10 +94,8 @@ html, body {
 #hourly {
   position: relative;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
-  border-top: 1px solid #3a3a3a;
-  border-bottom: 1px solid #3a3a3a;
-  padding: 2.5vmin 0 1.5vmin;
-  height: 38vmin;
+  padding: 2.2vmin 2vmin 1.2vmin;
+  height: 37vmin;
   display: -webkit-flex; display: flex;
 }
 #legend {
@@ -128,7 +147,7 @@ html, body {
 
 /* 横長の iPad（Air / Pro / mini など）は時計を大きく */
 @media (orientation: landscape) and (min-aspect-ratio: 7/5) {
-  #hm { font-size: 27vmin; }
+  #hm { font-size: 24vmin; }
 }
 
 /* ---- 夜：暗く ---- */
@@ -137,16 +156,15 @@ body.night #hm { color: #ffcc80; }
 
 /* ---- 縦向き ---- */
 @media (orientation: portrait) {
-  #top {
-    -webkit-flex-direction: column; flex-direction: column;
-    -webkit-justify-content: space-around; justify-content: space-around;
-  }
-  #clock { text-align: center; }
-  #hm { font-size: 30vmin; }
+  #top { -webkit-flex-direction: column; flex-direction: column; }
+  #clock { text-align: center; margin-bottom: 2vmin; }
+  #hm { font-size: 26vmin; }
+  #time { padding: 2vmin 0; }
   #now { max-width: 100%; -webkit-justify-content: center; justify-content: center; }
-  #now-wrap { text-align: center; margin: 0; padding: 3vmin 0 0; border-left: 0; border-top: 1px solid #3a3a3a; -webkit-align-self: auto; align-self: auto; }
-  #now-icon { font-size: 15vmin; }
-  #now-temp { font-size: 16vmin; }
+  #now-wrap { text-align: center; margin: 0; }
+  #now-icon { font-size: 12vmin; }
+  #now-temp { font-size: 13vmin; }
+  #now-sub { margin-top: 1.5vmin; padding-top: 1.5vmin; }
 }
 
 /* ---- 設定 ---- */
