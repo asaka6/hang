@@ -95,6 +95,7 @@
         hour: p.h,
         now: i === start,
         temp: h.temperature_2m[i],
+        feel: h.apparent_temperature ? h.apparent_temperature[i] : null,
         code: h.weather_code[i],
         pop: h.precipitation_probability ? h.precipitation_probability[i] : null,
         isDay: h.is_day ? h.is_day[i] : 1,
@@ -132,13 +133,16 @@
     return hour >= start || hour < end;
   }
 
-  // 気温グラフの点（幅 width・高さ height の枠に収める）
-  function tempPoints(temps, width, height, pad) {
+  // 気温グラフの点（幅 width・高さ height の枠に収める）。
+  // scale を渡すと、その値も含めた範囲で縦軸をそろえる（気温と体感を同じ目盛りで描くため）
+  function tempPoints(temps, width, height, pad, scale) {
     var lo = Infinity;
     var hi = -Infinity;
-    for (var i = 0; i < temps.length; i++) {
-      if (temps[i] < lo) lo = temps[i];
-      if (temps[i] > hi) hi = temps[i];
+    var all = scale ? temps.concat(scale) : temps;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] == null) continue;
+      if (all[i] < lo) lo = all[i];
+      if (all[i] > hi) hi = all[i];
     }
     var span = Math.max(hi - lo, 3); // 変化が小さい日でも線が暴れないように
     var mid = (hi + lo) / 2;
@@ -156,9 +160,9 @@
     return 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(4) +
       '&longitude=' + lon.toFixed(4) +
       '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m' +
-      '&hourly=temperature_2m,weather_code,precipitation_probability,is_day' +
+      '&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,is_day' +
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
-      '&timezone=auto&forecast_days=7&wind_speed_unit=ms';
+      '&timezone=auto&forecast_days=2&wind_speed_unit=ms';
   }
 
   root.ClockLogic = {

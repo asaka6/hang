@@ -25,18 +25,21 @@
         <div id="now-icon"></div>
         <div id="now-main">
           <div id="now-temp">--<span class="unit">°</span></div>
+          <div id="now-feel"><span class="k">体感</span><span id="t-feel">--</span></div>
           <div id="now-label">天気を読み込み中…</div>
         </div>
       </div>
       <div id="now-sub">
         <div><span class="k">最高</span><span id="t-max" class="hot">--</span><span class="k">最低</span><span id="t-min" class="cold">--</span></div>
         <div><span class="k">降水</span><span id="t-pop">--</span><span class="k">湿度</span><span id="t-hum">--</span></div>
-        <div><span class="k">体感</span><span id="t-feel">--</span><span class="k">風</span><span id="t-wind">--</span></div>
+        <div><span class="k">風</span><span id="t-wind">--</span></div>
       </div>
     </div>
   </div>
-  <div id="hourly"><svg id="graph" preserveAspectRatio="none"></svg><div id="hours"></div></div>
-  <div id="daily"></div>
+  <div id="hourly">
+    <div id="legend"><div class="temp">気温</div><div class="feel">体感</div><div class="gap"></div><div class="icon"></div><div class="pop">降水</div><div class="hour"></div></div>
+    <div id="hwrap"><svg id="graph" preserveAspectRatio="none"></svg><div id="hours"></div></div>
+  </div>
   <div id="status"><span id="place"></span><span id="updated"></span></div>
 </div>
 

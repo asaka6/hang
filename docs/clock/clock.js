@@ -104,7 +104,7 @@
     $('now-temp').innerHTML = (c.temperature_2m == null ? '--' : c.temperature_2m.toFixed(1)) + '<span class="unit">°</span>';
     $('now-label').textContent = w.label;
 
-    var days = L.dailyFrom(data, 7);
+    var days = L.dailyFrom(data, 1);
     var today = days[0] || {};
     $('t-max').textContent = fmtTemp(today.max);
     $('t-min').textContent = fmtTemp(today.min);
@@ -118,48 +118,43 @@
     var hours = L.hourlyFrom(data, count);
     var html = '';
     var temps = [];
+    var feels = [];
     for (var i = 0; i < hours.length; i++) {
       var h = hours[i];
       var hw = L.describe(h.code, h.isDay);
       temps.push(h.temp);
+      feels.push(h.feel);
       html += '<div class="h' + (h.now ? ' now' : '') + '">' +
         '<div class="temp">' + Math.round(h.temp) + '°</div>' +
+        '<div class="feel">' + (h.feel == null ? '' : Math.round(h.feel) + '°') + '</div>' +
         '<div class="gap"></div>' +
         '<div class="icon">' + hw.icon + '</div>' +
         '<div class="pop' + (h.pop ? '' : ' zero') + '">' + (h.pop == null ? '' : h.pop + '%') + '</div>' +
         '<div class="hour">' + (h.now ? '今' : h.hour + '時') + '</div></div>';
     }
     $('hours').innerHTML = html;
-    drawGraph(temps);
-
-    // 日ごと（今日を除く 6 日。縦向きは 5 日）
-    var n = window.innerWidth > window.innerHeight ? 6 : 5;
-    html = '';
-    for (var j = 1; j < days.length && j <= n; j++) {
-      var d = days[j];
-      var dw = L.describe(d.code, 1);
-      html += '<div class="d' + (d.sunday ? ' sun' : d.saturday ? ' sat' : '') + '">' +
-        '<div class="name">' + d.label + '<small>' + d.month + '/' + d.day + '</small></div>' +
-        '<div class="icon">' + dw.icon + '</div>' +
-        '<div class="t"><span class="hot">' + d.max + '°</span><span class="cold">' + d.min + '°</span></div>' +
-        '<div class="pop">' + (d.pop == null ? '' : '☂ ' + d.pop + '%') + '</div></div>';
-    }
-    $('daily').innerHTML = html;
+    drawGraph(temps, feels);
   }
 
   // 気温の折れ線（SVG）
-  function drawGraph(temps) {
+  function drawGraph(temps, feels) {
     var svg = $('graph');
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     if (!temps.length) return;
     var W = 1000;
     var H = 100;
-    var pts = L.tempPoints(temps, W, H, 12);
+    var hasFeel = feels && feels.length && feels[0] != null;
+    var pts = L.tempPoints(temps, W, H, 12, hasFeel ? feels : null);
+    var fpts = hasFeel ? L.tempPoints(feels, W, H, 12, temps) : [];
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     var line = '';
+    var fline = '';
     var dots = '';
     for (var i = 0; i < pts.length; i++) {
       line += (i ? ' ' : '') + pts[i][0] + ',' + pts[i][1];
+    }
+    for (var f = 0; f < fpts.length; f++) {
+      fline += (f ? ' ' : '') + fpts[f][0] + ',' + fpts[f][1];
     }
     // 点は横に伸びないよう小さな線分で描く
     for (var j = 0; j < pts.length; j++) {
@@ -169,6 +164,7 @@
     var ns = 'http://www.w3.org/2000/svg';
     // 古い Safari は SVG の innerHTML に対応しないので DOMParser で作る
     var doc = new DOMParser().parseFromString('<svg xmlns="' + ns + '">' +
+      (fline ? '<polyline points="' + fline + '" fill="none" stroke="#ce93d8" stroke-opacity="0.8" stroke-width="2" stroke-dasharray="6,5" vector-effect="non-scaling-stroke"/>' : '') +
       '<polyline points="' + line + '" fill="none" stroke="#ffb74d" stroke-opacity="0.6" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
       dots + '</svg>', 'image/svg+xml');
     var kids = doc.documentElement.childNodes;

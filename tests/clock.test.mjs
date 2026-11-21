@@ -42,6 +42,7 @@ const sample = {
   hourly: {
     time: ['2026-11-21T15:00', '2026-11-21T16:00', '2026-11-21T17:00', '2026-11-21T18:00', '2026-11-21T19:00'],
     temperature_2m: [12, 11.5, 10.2, 9.8, 9.1],
+    apparent_temperature: [10, 9.4, 7.6, 6.9, 5.8],
     weather_code: [1, 2, 3, 61, 63],
     precipitation_probability: [0, 0, 10, 40, 70],
     is_day: [1, 1, 0, 0, 0],
@@ -62,6 +63,7 @@ test('hourly forecast starts at the current hour', () => {
   assert.equal(h[0].now, true);
   assert.equal(h[1].hour, 18);
   assert.equal(h[1].pop, 40);
+  assert.equal(h[0].feel, 7.6);
   assert.equal(h[1].now, false);
 });
 
@@ -84,4 +86,14 @@ test('temperature graph points fit the box', () => {
     assert.ok(y >= 10 && y <= 90, String(y));
   }
   assert.ok(pts[1][1] < pts[2][1], 'warmer is higher');
+});
+
+test('temperature and feels-like share one scale', () => {
+  const t = [10, 12];
+  const f = [6, 8];
+  const tp = L.tempPoints(t, 1000, 100, 10, f);
+  const fp = L.tempPoints(f, 1000, 100, 10, t);
+  assert.ok(fp[0][1] > tp[0][1], 'feels-like is drawn lower when colder');
+  assert.equal(tp[1][1], 10);
+  assert.equal(fp[0][1], 90);
 });
