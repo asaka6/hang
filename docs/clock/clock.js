@@ -115,20 +115,15 @@
     var c = data.current || {};
     var w = L.describe(c.weather_code, c.is_day);
     $('now-icon').textContent = w.icon;
-    $('now-temp').innerHTML = (c.temperature_2m == null ? '--' : c.temperature_2m.toFixed(1)) + '<span class="unit">°</span>';
+    $('t-temp').textContent = c.temperature_2m == null ? '--' : c.temperature_2m.toFixed(1);
     $('now-label').textContent = ''; // 天気の文字（晴れ時々くもり など）は出さない。読み込み中などのお知らせだけに使う
 
     var days = L.dailyFrom(data, 1);
     var today = days[0] || {};
     $('t-max').textContent = fmtTemp(today.max);
     $('t-min').textContent = fmtTemp(today.min);
-    var pr = L.nowPrecip(data);
-    $('t-pop-k').textContent = pr.label;
-    $('t-pop').innerHTML = pr.value + (pr.value === '--' ? '' : pr.wet ? '<span class="u">' + pr.unit + '</span>' : pr.unit);
-    $('s-pop').className = pr.wet ? 'stat wet' : 'stat';
-    $('t-hum').textContent = c.relative_humidity_2m == null ? '--' : c.relative_humidity_2m + '%';
     $('t-feel').textContent = fmtTemp(c.apparent_temperature);
-    $('t-wind').textContent = c.wind_speed_10m == null ? '--' : Math.round(c.wind_speed_10m) + 'm/s';
+    $('t-wind').innerHTML = c.wind_speed_10m == null ? '--' : Math.round(c.wind_speed_10m) + '<span class="u">m/s</span>';
 
     // 1 時間ごと（横向きは 12 時間、縦向きは 8 時間）
     var count = window.innerWidth > window.innerHeight ? 12 : 8;
@@ -147,6 +142,7 @@
         '<div class="gap"></div>' +
         '<div class="icon">' + hw.icon + '</div>' +
         '<div class="pop' + (h.pop ? '' : ' zero') + '">' + (h.pop == null ? '' : h.pop + '%') + '</div>' +
+        '<div class="mm' + (h.precip >= 0.1 ? '' : ' zero') + '">' + L.formatMM(h.precip) + '</div>' +
         '<div class="hour">' + (h.now ? '今' : h.hour + '時') + '</div></div>';
     }
     $('hours').innerHTML = html;

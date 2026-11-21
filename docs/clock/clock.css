@@ -75,10 +75,13 @@ html, body {
 }
 #now-main { text-align: center; }
 #now-icon { font-size: 10vmin; line-height: 1; margin-right: 2vmin; }
-#now-temp { font-size: 12.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; }
-#now-temp .unit { font-size: 7vmin; vertical-align: top; color: #aaa; }
-#now-feel { font-size: 3.6vmin; margin-top: 1vmin; padding-right: 3vmin; /* °の分だけ数字の中心に寄せる */ white-space: nowrap; color: #999; }
-#now-feel .k { font-size: 2.8vmin; color: #777; margin-right: 0.8vmin; }
+/* 気温の数字だけで幅を決め、°は右にはみ出させる。体感はその数字の真下・中央に置く */
+#now-main { padding-right: 4vmin; }
+#now-temp { font-size: 12.5vmin; font-weight: 200; line-height: 1; white-space: nowrap; position: relative; display: inline-block; }
+#now-temp .unit { position: absolute; left: 100%; top: 0; font-size: 7vmin; line-height: 1; color: #aaa; }
+#now-feel { margin-top: 1.2vmin; white-space: nowrap; color: #999; line-height: 1; }
+#now-feel .k { font-size: 3vmin; color: #777; margin-right: 0.8vmin; }
+#now-feel #t-feel { font-size: 3.6vmin; }
 #now-label { font-size: 4vmin; color: #ccc; margin-top: 0.5vmin; white-space: nowrap; }
 #now-wrap {
   text-align: center;
@@ -104,9 +107,7 @@ html, body {
 .stat .k { color: #888; font-size: 2.5vmin; margin-bottom: 0.6vmin; }
 .stat .v { font-size: 3.8vmin; white-space: nowrap; }
 .srow.big .v { font-size: 5vmin; }
-.stat.wet .k, .stat.wet .v { color: #64b5f6; }
-.stat .v .u { font-size: 2.4vmin; }
-.srow + .srow { margin-top: 2.6vmin; }
+.stat .v .u { font-size: 2.6vmin; color: #aaa; margin-left: 0.3vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 
@@ -115,7 +116,7 @@ html, body {
   position: relative;
   -webkit-flex: 0 0 auto; flex: 0 0 auto;
   padding: 2.2vmin 2vmin 1.2vmin;
-  height: 37vmin;
+  height: 41.5vmin;
   display: -webkit-flex; display: flex;
 }
 #legend {
@@ -126,7 +127,7 @@ html, body {
   font-size: 2.3vmin; color: #777;
 }
 #legend .feel { color: #666; }
-#legend .pop { color: #4f7fa6; }
+#legend .pop, #legend .mm { color: #4f7fa6; }
 #legend > div { line-height: 1; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
 #hwrap { position: relative; -webkit-flex: 1 1 auto; flex: 1 1 auto; min-width: 0; }
 #graph { position: absolute; left: 0; right: 0; top: 9vmin; width: 100%; height: 9vmin; pointer-events: none; }
@@ -151,6 +152,8 @@ html, body {
 #legend .icon { height: 5.5vmin; }
 .h .pop { font-size: 2.8vmin; color: #64b5f6; }
 .h .pop.zero { color: #444; }
+.h .mm { font-size: 2.8vmin; color: #64b5f6; }
+.h .mm.zero { color: #444; }
 .h .hour { font-size: 3vmin; color: #999; }
 .h.now .hour { color: #fff; font-weight: bold; }
 
@@ -184,10 +187,9 @@ body.night #hm { color: #ffcc80; }
   #now-wrap { text-align: center; margin: 0; }
   #now-icon { font-size: 12vmin; }
   #now-temp { font-size: 13vmin; }
-  #now-sub { margin-top: 1.5vmin; padding-top: 0.5vmin; display: -webkit-flex; display: flex; }
-  .srow { margin-top: 1.5vmin; -webkit-flex: 2 1 0; flex: 2 1 0; }
-  .srow + .srow { margin-top: 1.5vmin; -webkit-flex: 3 1 0; flex: 3 1 0; border-left: 1px solid #262626; }
-  .srow.big .v { font-size: 3.8vmin; }
+  #now-sub { margin-top: 1.5vmin; padding-top: 0.5vmin; }
+  .srow { margin-top: 1.5vmin; }
+  .srow.big .v { font-size: 4.2vmin; }
 }
 
 /* ---- 設定 ---- */

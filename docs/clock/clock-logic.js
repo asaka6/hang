@@ -157,37 +157,17 @@
     return pts;
   }
 
-  // 雨・雪が降っている天気コードか（霧雨・にわか雨・雷雨を含む）
-  function isWetCode(code) {
-    return (code >= 51 && code <= 67) || (code >= 71 && code <= 77) || (code >= 80 && code <= 86) || code >= 95;
-  }
-  function isSnowCode(code) {
-    return (code >= 71 && code <= 77) || code === 85 || code === 86;
-  }
-
-  // 右上の「降水」のマスに出すもの。
-  // 降っている時：今の 1 時間の雨量（mm/h）。降っていない時：今の時間の降水確率
-  function nowPrecip(data) {
-    var c = (data && data.current) || {};
-    var h = hourlyFrom(data, 1)[0] || {};
-    var wet = isWetCode(c.weather_code) || c.precipitation > 0;
-    if (wet) {
-      var mm = h.precip != null ? h.precip : c.precipitation;
-      if (c.precipitation > mm) mm = c.precipitation;
-      return {
-        wet: true,
-        label: isSnowCode(c.weather_code) ? '降水量' : '雨量',
-        value: mm == null ? '--' : mm < 0.1 ? '0.1未満' : (Math.round(mm * 10) / 10).toFixed(1),
-        unit: 'mm/h',
-      };
-    }
-    return { wet: false, label: '降水', value: h.pop == null ? '--' : String(h.pop), unit: '%' };
+  // 1 時間の降水量（mm）の表示。降らない時は「-」
+  function formatMM(v) {
+    if (v == null) return '';
+    if (v < 0.1) return '-';
+    return v < 10 ? (Math.round(v * 10) / 10).toFixed(1) : String(Math.round(v));
   }
 
   function buildUrl(lat, lon) {
     return 'https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(4) +
       '&longitude=' + lon.toFixed(4) +
-      '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,is_day,wind_speed_10m,precipitation' +
+      '&current=temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m' +
       '&hourly=temperature_2m,apparent_temperature,weather_code,precipitation_probability,precipitation,is_day' +
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max' +
       '&timezone=auto&forecast_days=2&wind_speed_unit=ms';
@@ -203,7 +183,7 @@
     dailyFrom: dailyFrom,
     isNight: isNight,
     tempPoints: tempPoints,
-    nowPrecip: nowPrecip,
+    formatMM: formatMM,
     buildUrl: buildUrl,
   };
 })(this);
