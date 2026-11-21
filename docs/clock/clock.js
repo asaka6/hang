@@ -67,12 +67,6 @@
   var lastMinute = -1;
   var lastReloadDay = new Date().getDate();
   function everyMinute(now) {
-    // 焼き付き防止：画面全体を数ピクセルずつずらす
-    var dx = Math.round(Math.random() * 8 - 4);
-    var dy = Math.round(Math.random() * 6 - 3);
-    var s = $('stage').style;
-    // translate3d にして、ずらす動きや夜の暗さを GPU に任せる（画面全体の描き直しを防ぐ）
-    s.webkitTransform = s.transform = 'translate3d(' + dx + 'px,' + dy + 'px,0)';
     renderStatus();
     // 毎朝 4 時に読み込み直す（アプリの更新を反映し、長時間動かしても重くならないように）
     if (now.getHours() === 4 && now.getMinutes() === 0 && now.getDate() !== lastReloadDay && navigator.onLine !== false) {
