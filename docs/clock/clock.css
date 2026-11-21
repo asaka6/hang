@@ -128,7 +128,13 @@ html, body {
 }
 #legend .feel { color: #666; }
 #legend .pop, #legend .mm { color: #4f7fa6; }
-#legend > div { line-height: 1; display: -webkit-flex; display: flex; -webkit-align-items: center; align-items: center; }
+/* 見出し（気温・体感…）と各時間の数字を、同じ高さの行の上下中央にそろえる */
+#legend > div, .h > div {
+  line-height: 1;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+}
+.h > div { -webkit-justify-content: center; justify-content: center; }
 #hwrap { position: relative; -webkit-flex: 1 1 auto; flex: 1 1 auto; min-width: 0; }
 #graph { position: absolute; left: 0; right: 0; top: 9vmin; width: 100%; height: 9vmin; pointer-events: none; }
 #hours {
