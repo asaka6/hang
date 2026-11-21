@@ -102,7 +102,20 @@ test('hourly precipitation amount text', () => {
   assert.equal(L.formatMM(0), '-');
   assert.equal(L.formatMM(0.04), '-');
   assert.equal(L.formatMM(0.1), '0.1');
-  assert.equal(L.formatMM(1.46), '1.5');
+  assert.equal(L.formatMM(0.96), '1.0');
+  assert.equal(L.formatMM(1.0), '1.0');
+  assert.equal(L.formatMM(1.46), '1');
+  assert.equal(L.formatMM(1.5), '2');
+  assert.equal(L.formatMM(5.1), '5');
   assert.equal(L.formatMM(12.4), '12');
   assert.equal(L.formatMM(null), '');
+});
+
+test('precipitation chance in 10% steps', () => {
+  assert.equal(L.roundPop(99), 100);
+  assert.equal(L.roundPop(94), 90);
+  assert.equal(L.roundPop(95), 100);
+  assert.equal(L.roundPop(4), 0);
+  assert.equal(L.roundPop(0), 0);
+  assert.equal(L.roundPop(null), null);
 });

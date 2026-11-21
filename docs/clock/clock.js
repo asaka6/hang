@@ -115,7 +115,7 @@
     var c = data.current || {};
     var w = L.describe(c.weather_code, c.is_day);
     $('now-icon').textContent = w.icon;
-    $('t-temp').textContent = c.temperature_2m == null ? '--' : c.temperature_2m.toFixed(1);
+    $('t-temp').textContent = c.temperature_2m == null ? '--' : String(Math.round(c.temperature_2m)); // 1 度刻み
     $('now-label').textContent = ''; // 天気の文字（晴れ時々くもり など）は出さない。読み込み中などのお知らせだけに使う
 
     var days = L.dailyFrom(data, 1);
@@ -134,6 +134,7 @@
     for (var i = 0; i < hours.length; i++) {
       var h = hours[i];
       var hw = L.describe(h.code, h.isDay);
+      var pop = L.roundPop(h.pop);
       temps.push(h.temp);
       feels.push(h.feel);
       html += '<div class="h' + (h.now ? ' now' : '') + '">' +
@@ -141,7 +142,7 @@
         '<div class="feel">' + (h.feel == null ? '' : Math.round(h.feel) + '°') + '</div>' +
         '<div class="gap"></div>' +
         '<div class="icon">' + hw.icon + '</div>' +
-        '<div class="pop' + (h.pop ? '' : ' zero') + '">' + (h.pop == null ? '' : h.pop + '%') + '</div>' +
+        '<div class="pop' + (pop ? '' : ' zero') + '">' + (pop == null ? '' : pop + '%') + '</div>' +
         '<div class="mm' + (h.precip >= 0.1 ? '' : ' zero') + '">' + L.formatMM(h.precip) + '</div>' +
         '<div class="hour">' + (h.now ? '今' : h.hour + '時') + '</div></div>';
     }
