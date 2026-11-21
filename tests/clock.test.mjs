@@ -97,3 +97,24 @@ test('temperature and feels-like share one scale', () => {
   assert.equal(tp[1][1], 10);
   assert.equal(fp[0][1], 90);
 });
+
+test('current precipitation cell: rain amount when wet, hourly chance when dry', () => {
+  const dry = { ...sample, current: { time: '2026-11-21T17:45', weather_code: 3, precipitation: 0 } };
+  const d = L.nowPrecip(dry);
+  assert.equal(d.wet, false);
+  assert.equal(d.label, '降水');
+  assert.equal(d.value, '10'); // 17 時の降水確率（1 日の最大 40% ではない）
+
+  const hourly = { ...sample.hourly, precipitation: [0, 0, 1.46, 3, 0] };
+  const wet = L.nowPrecip({ ...sample, hourly, current: { time: '2026-11-21T17:45', weather_code: 63, precipitation: 0.3 } });
+  assert.equal(wet.wet, true);
+  assert.equal(wet.label, '雨量');
+  assert.equal(wet.value, '1.5');
+  assert.equal(wet.unit, 'mm/h');
+
+  const drizzle = L.nowPrecip({ ...sample, hourly, current: { time: '2026-11-21T15:10', weather_code: 51, precipitation: 0 } });
+  assert.equal(drizzle.value, '0.1未満');
+
+  const snow = L.nowPrecip({ ...sample, hourly, current: { time: '2026-11-21T17:45', weather_code: 73, precipitation: 1 } });
+  assert.equal(snow.label, '降水量');
+});

@@ -104,6 +104,8 @@ html, body {
 .stat .k { color: #888; font-size: 2.5vmin; margin-bottom: 0.6vmin; }
 .stat .v { font-size: 3.8vmin; white-space: nowrap; }
 .srow.big .v { font-size: 5vmin; }
+.stat.wet .k, .stat.wet .v { color: #64b5f6; }
+.stat .v .u { font-size: 2.4vmin; }
 .srow + .srow { margin-top: 2.6vmin; }
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }

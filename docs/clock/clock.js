@@ -122,7 +122,10 @@
     var today = days[0] || {};
     $('t-max').textContent = fmtTemp(today.max);
     $('t-min').textContent = fmtTemp(today.min);
-    $('t-pop').textContent = today.pop == null ? '--' : today.pop + '%';
+    var pr = L.nowPrecip(data);
+    $('t-pop-k').textContent = pr.label;
+    $('t-pop').innerHTML = pr.value + (pr.value === '--' ? '' : pr.wet ? '<span class="u">' + pr.unit + '</span>' : pr.unit);
+    $('s-pop').className = pr.wet ? 'stat wet' : 'stat';
     $('t-hum').textContent = c.relative_humidity_2m == null ? '--' : c.relative_humidity_2m + '%';
     $('t-feel').textContent = fmtTemp(c.apparent_temperature);
     $('t-wind').textContent = c.wind_speed_10m == null ? '--' : Math.round(c.wind_speed_10m) + 'm/s';
