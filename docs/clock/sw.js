@@ -1,5 +1,5 @@
 // 置き時計をオフラインでも開けるようにするサービスワーカー（天気の通信はキャッシュしない）
-var CACHE = 'okidokei-v4';
+var CACHE = 'okidokei-v5';
 var FILES = ['./', 'index.html', 'clock.css', 'clock-logic.js', 'clock.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', function (e) {
