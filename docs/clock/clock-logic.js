@@ -157,12 +157,12 @@
     return pts;
   }
 
-  // 1 時間の降水量（mm）の表示。降らない時は「-」。1.0mm までは 0.1 刻み、それより多い時は 1 刻み
+  // 1 時間の降水量（mm）の表示。降らない時は「-」。1.0mm までは 0.1 刻み、それより多い時は 1 刻み（表示は 2.0 のように小数 1 桁）
   function formatMM(v) {
     if (v == null) return '';
     var r = Math.round(v * 10) / 10;
     if (r < 0.1) return '-';
-    return r <= 1 ? r.toFixed(1) : String(Math.round(v));
+    return r <= 1 ? r.toFixed(1) : Math.round(v).toFixed(1); // 1.0 より多い時は 2.0, 3.0 … と 1 刻み
   }
 
   // 降水確率は 10% 刻み

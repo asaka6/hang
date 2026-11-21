@@ -104,10 +104,10 @@ test('hourly precipitation amount text', () => {
   assert.equal(L.formatMM(0.1), '0.1');
   assert.equal(L.formatMM(0.96), '1.0');
   assert.equal(L.formatMM(1.0), '1.0');
-  assert.equal(L.formatMM(1.46), '1');
-  assert.equal(L.formatMM(1.5), '2');
-  assert.equal(L.formatMM(5.1), '5');
-  assert.equal(L.formatMM(12.4), '12');
+  assert.equal(L.formatMM(1.46), '1.0');
+  assert.equal(L.formatMM(1.5), '2.0');
+  assert.equal(L.formatMM(5.1), '5.0');
+  assert.equal(L.formatMM(12.4), '12.0');
   assert.equal(L.formatMM(null), '');
 });
 
