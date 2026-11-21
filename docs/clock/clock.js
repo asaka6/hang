@@ -158,8 +158,8 @@
     var W = 1000;
     var H = 100;
     var hasFeel = feels && feels.length && feels[0] != null;
-    var pts = L.tempPoints(temps, W, H, 12, hasFeel ? feels : null);
-    var fpts = hasFeel ? L.tempPoints(feels, W, H, 12, temps) : [];
+    var pts = L.tempPoints(temps, W, H, 16, hasFeel ? feels : null);
+    var fpts = hasFeel ? L.tempPoints(feels, W, H, 16, temps) : [];
     svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
     var line = '';
     var fline = '';
