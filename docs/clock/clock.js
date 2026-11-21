@@ -164,8 +164,8 @@
     var ns = 'http://www.w3.org/2000/svg';
     // 古い Safari は SVG の innerHTML に対応しないので DOMParser で作る
     var doc = new DOMParser().parseFromString('<svg xmlns="' + ns + '">' +
-      (fline ? '<polyline points="' + fline + '" fill="none" stroke="#ce93d8" stroke-opacity="0.8" stroke-width="2" stroke-dasharray="6,5" vector-effect="non-scaling-stroke"/>' : '') +
-      '<polyline points="' + line + '" fill="none" stroke="#ffb74d" stroke-opacity="0.6" stroke-width="2" vector-effect="non-scaling-stroke"/>' +
+      (fline ? '<polyline points="' + fline + '" fill="none" stroke="#888" stroke-opacity="0.6" stroke-width="1.5" stroke-dasharray="5,5" vector-effect="non-scaling-stroke"/>' : '') +
+      '<polyline points="' + line + '" fill="none" stroke="#ffb74d" stroke-opacity="0.9" stroke-width="2.5" vector-effect="non-scaling-stroke"/>' +
       dots + '</svg>', 'image/svg+xml');
     var kids = doc.documentElement.childNodes;
     for (var k = 0; k < kids.length; k++) svg.appendChild(document.importNode(kids[k], true));
