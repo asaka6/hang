@@ -100,6 +100,24 @@
     }
   }
 
+  // 「体感 11°」の行の中心を、「13°」（° も含めた全体）の中心にそろえる
+  function alignFeel() {
+    var feel = $('now-feel');
+    var unit = document.querySelector('#now-temp .unit');
+    feel.style.position = 'relative';
+    feel.style.left = '0px';
+    var t = $('t-temp').getBoundingClientRect();
+    var u = unit.getBoundingClientRect();
+    var f = feel.getBoundingClientRect();
+    var r = document.createRange();
+    r.selectNodeContents(feel);
+    var fc = r.getBoundingClientRect();
+    if (!t.width || !fc.width) return;
+    var target = (t.left + u.right) / 2;
+    var now = (fc.left + fc.right) / 2;
+    feel.style.left = Math.round((target - now) * 10) / 10 + 'px';
+  }
+
   function everyMinute(now) {
     renderStatus();
     fitTime();
@@ -188,6 +206,7 @@
     drawGraph(temps, feels);
     fitTime();
     fitStats();
+    alignFeel();
   }
 
   // 気温の折れ線（SVG）
@@ -345,6 +364,7 @@
       if (w !== lastW) { lastW = w; render(); }
       fitTime();
       fitStats();
+      alignFeel();
     });
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden && (!weather || Date.now() - weather.at > REFRESH_MS)) fetchWeather();
