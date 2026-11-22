@@ -139,7 +139,7 @@ html, body {
 /* 風速の m/s は数字のすぐ後ろにつける */
 .stat .v .num.wind .u { position: static; margin-left: 0.1vmin; }
 .stat .v .u.deg { bottom: auto; top: 0; font-size: 1em; color: inherit; margin-left: 0; }
-.stat .v { line-height: 1.15; }
+.stat .v { line-height: 1.15; position: relative; top: 0.8vmin; } /* 数字だけ少し下げる（見出しの位置はそのまま） */
 .hot { color: #ff8a65; }
 .cold { color: #64b5f6; }
 
