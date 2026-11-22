@@ -100,10 +100,18 @@ html, body {
   -webkit-flex-direction: column; flex-direction: column;
   -webkit-justify-content: center; justify-content: center;
 }
-#now-sub { margin-top: 2.5vmin; padding-top: 1vmin; border-top: 1px solid #2a2a2a; }
+/* 最高・最低・風の段：区切り線から囲みの下端までを使い、その中で上下中央に置く */
+#now-sub {
+  margin-top: 2.5vmin;
+  border-top: 1px solid #2a2a2a;
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+}
 .srow {
   display: -webkit-flex; display: flex;
-  margin-top: 1.8vmin;
+  -webkit-flex: 1 1 auto; flex: 1 1 auto;
+  margin-bottom: -2vmin; /* 囲みの下端まで */
   /* 欄を囲みの左右の端まで広げる（見た目の欄の中央に見出しが来るように） */
   margin-left: -3vmin; margin-right: -3vmin;
 }
@@ -111,9 +119,18 @@ html, body {
   -webkit-flex: 1 1 0; flex: 1 1 0;
   text-align: center;
   line-height: 1.15;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-justify-content: center; justify-content: center;
+  padding: 2vmin 0;
 }
-.stat + .stat { border-left: 1px solid #262626; }
-.stat .k { color: #888; font-size: 2.9vmin; margin-bottom: 0.6vmin; }
+/* 欄の区切り線は、上下に余白をとった短い線にする */
+.stat { position: relative; }
+.stat + .stat:before {
+  content: ''; position: absolute; left: 0; top: 2.2vmin; bottom: 2.2vmin;
+  border-left: 1px solid #262626;
+}
+.stat .k { color: #888; font-size: 2.9vmin; margin-bottom: 1.8vmin; }
 .stat .v { font-size: 3.8vmin; white-space: nowrap; }
 .srow.big .v { font-size: 6vmin; }
 .stat .v .num { position: relative; display: inline-block; }
@@ -212,8 +229,9 @@ body.night #hm { color: #ffcc80; }
   #now-wrap { text-align: center; margin: 0; }
   #now-icon { font-size: 12vmin; }
   #now-temp { font-size: 13vmin; }
-  #now-sub { margin-top: 1.5vmin; padding-top: 0.5vmin; }
-  .srow { margin-top: 1.5vmin; }
+  #now-sub { margin-top: 1.5vmin; }
+  .stat { padding: 1.5vmin 0; }
+  .stat .k { margin-bottom: 1.2vmin; }
   .srow.big .v { font-size: 4.2vmin; }
 }
 
